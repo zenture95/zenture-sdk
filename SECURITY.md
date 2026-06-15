@@ -7,13 +7,27 @@ for prerelease code, documentation, examples, packaging, CI, and release workflo
 
 ## Reporting a Vulnerability
 
-Report suspected vulnerabilities privately through GitHub Security Advisories on
-the `zenture-sdk` repository once the public repository is enabled. If GitHub
-Security Advisories are not available, contact the zenture maintainers through
-the private security contact listed in the organization profile.
+During the private/bootstrap phase, create a GitHub issue in the `zenture-sdk`
+repository for security hardening requests, dependency concerns, release-process
+issues, documentation gaps, redaction problems, or suspected SDK vulnerabilities
+that do not include active secrets, exploit payloads, private customer data, or
+instructions for abusing zenture systems.
 
-Do not disclose vulnerabilities publicly until zenture has acknowledged the report
-and coordinated a fix or mitigation.
+Use a clear title such as `Security: <short description>` and include:
+
+- affected file, workflow, package, or behavior
+- expected security property
+- observed risk
+- reproduction steps using fake tokens and synthetic data only
+- suggested severity if known
+
+Do not post real zenture API tokens, JWTs, customer data, private prompts,
+provider payloads, production URLs with sensitive query strings, or working
+exploit instructions in GitHub issues.
+
+Once the repository is public and GitHub Security Advisories are enabled, use a
+private GitHub Security Advisory for high-impact vulnerabilities or anything that
+requires coordinated disclosure before public discussion.
 
 ## Secret Handling Expectations
 

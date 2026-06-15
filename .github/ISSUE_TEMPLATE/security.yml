@@ -1,0 +1,79 @@
+name: Security report
+description: Report SDK security hardening, release safety, dependency, or redaction concerns.
+title: "Security: "
+labels:
+  - security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for SDK security hardening, dependency concerns, release-process issues,
+        documentation gaps, redaction problems, or suspected SDK vulnerabilities.
+
+        Do not include real zenture API tokens, JWTs, customer data, private prompts, provider
+        payloads, production URLs with sensitive query strings, or working exploit instructions.
+        Use fake tokens and synthetic data only.
+
+        For high-impact vulnerabilities after the repository is public and GitHub Security
+        Advisories are enabled, use a private Security Advisory instead of a public issue.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Redaction / secret handling
+        - Error handling
+        - Idempotency
+        - Retry / timeout / polling
+        - Packaging / release workflow
+        - Dependency / supply chain
+        - Documentation / examples
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: expected_property
+    attributes:
+      label: Expected security property
+      description: Describe the property the SDK should preserve.
+      placeholder: "Example: API tokens must never appear in exception strings or debug output."
+    validations:
+      required: true
+  - type: textarea
+    id: observed_risk
+    attributes:
+      label: Observed risk
+      description: Describe what appears risky or incorrect.
+      placeholder: "Describe the observed behavior without including secrets or customer data."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction with fake data
+      description: Provide steps using fake tokens and synthetic data only.
+      placeholder: |
+        1. Use fake token zt_test_redacted_000000
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: false
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Suggested severity
+      options:
+        - Unsure
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety_confirmation
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I did not include real API tokens, JWTs, customer data, private prompts, provider payloads, or working exploit instructions.
+          required: true

@@ -8,5 +8,11 @@ state.
 
 ## Unreleased
 
+## 0.1.0b1 - 2026-06-15
+
 - Added SDK architecture and implementation plan.
 - Added repository governance bootstrap documents.
+- Added public sync/async clients, private httpx transport, strict contract
+  models, model discovery, single-/multi-model chat, evaluation creation,
+  operation reads, billing, usage, limits, idempotency, retry, timeout and
+  polling primitives.
