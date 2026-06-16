@@ -52,8 +52,9 @@ def test_contract_enums_match_openapi_exactly() -> None:
     assert [status.value for status in OperationStatus] == operation_status["enum"]
     assert [code.value for code in PublicErrorCode] == public_error_code["enum"]
     assert PublicErrorCode.MISSING_IDEMPOTENCY_KEY.value == "missing_idempotency_key"
-    assert [mode.value for mode in ModelMode] == schemas["ChatRequest"]["properties"]["mode"][
-        "enum"
+    assert [mode.value for mode in ModelMode] == schemas["ModelMode"]["enum"]
+    assert schemas["ChatRequest"]["properties"]["mode"]["allOf"] == [
+        {"$ref": "#/components/schemas/ModelMode"}
     ]
     assert "agentic" not in {mode.value for mode in ModelMode}
 

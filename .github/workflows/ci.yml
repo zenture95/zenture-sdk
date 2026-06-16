@@ -109,5 +109,11 @@ jobs:
       - name: Build distributions
         run: python -m build
 
+      - name: Check package artifact contents
+        run: python scripts/check_package_artifacts.py dist
+
+      - name: Fresh install smoke test
+        run: python scripts/smoke_install_wheel.py dist
+
       - name: Validate distributions
         run: python -m twine check dist/*

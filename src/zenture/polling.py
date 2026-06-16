@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import model_validator
 
 from zenture._contract import OperationStatus
 from zenture.models import SDKBaseModel
 
-__all__ = ("OperationStatus", "PollingConfig", "is_terminal_status")
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+__all__ = (
+    "OperationStatus",
+    "PollingConfig",
+    "is_terminal_status",
+    "next_poll_interval",
+    "remaining_timeout",
+    "should_stop_polling",
+)
 
 _TERMINAL_STATUSES = frozenset(
     {
@@ -41,3 +53,29 @@ def is_terminal_status(status: OperationStatus | str) -> bool:
     """Return whether an operation status is terminal."""
 
     return OperationStatus(status) in _TERMINAL_STATUSES
+
+
+def next_poll_interval(*, current: float, max_interval: float) -> float:
+    """Return the next deterministic poll interval, capped at max_interval."""
+
+    doubled = current * 2.0
+    if doubled > max_interval:
+        return max_interval
+    return doubled
+
+
+def remaining_timeout(*, deadline: float, now: float) -> float:
+    """Return remaining seconds in a polling deadline budget."""
+
+    remaining = deadline - now
+    if remaining <= 0:
+        return 0.0
+    return remaining
+
+
+def should_stop_polling(stop: Callable[[], bool] | None) -> bool:
+    """Return whether caller-provided local stop has been requested."""
+
+    if stop is None:
+        return False
+    return stop()

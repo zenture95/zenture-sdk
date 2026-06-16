@@ -2,16 +2,16 @@
 
 ## Supported Versions
 
-`zenture-sdk` is not public-release stable yet. Security reports are still welcome
-for prerelease code, documentation, examples, packaging, CI, and release workflows.
+`zenture-sdk` is prerelease software. Security reports are welcome for SDK
+runtime behavior, documentation, examples, packaging, CI, and release workflows.
 
 ## Reporting a Vulnerability
 
-During the private/bootstrap phase, create a GitHub issue in the `zenture-sdk`
-repository for security hardening requests, dependency concerns, release-process
-issues, documentation gaps, redaction problems, or suspected SDK vulnerabilities
-that do not include active secrets, exploit payloads, private customer data, or
-instructions for abusing zenture systems.
+Open a GitHub issue in the `zenture-sdk` repository for security hardening
+requests, dependency concerns, release-process issues, documentation gaps,
+redaction problems, or suspected SDK vulnerabilities that do not include active
+secrets, exploit payloads, private customer data, or instructions for abusing
+zenture systems.
 
 Use a clear title such as `Security: <short description>` and include:
 
@@ -25,9 +25,9 @@ Do not post real zenture API tokens, JWTs, customer data, private prompts,
 provider payloads, production URLs with sensitive query strings, or working
 exploit instructions in GitHub issues.
 
-Once the repository is public and GitHub Security Advisories are enabled, use a
-private GitHub Security Advisory for high-impact vulnerabilities or anything that
-requires coordinated disclosure before public discussion.
+Once GitHub Security Advisories are enabled, use a private GitHub Security Advisory
+for high-impact vulnerabilities or anything that requires coordinated
+disclosure before public discussion.
 
 ## Secret Handling Expectations
 
@@ -47,8 +47,8 @@ Examples and tests must use fake credentials only.
 
 ## Release Security
 
-Public package publishing must use PyPI Trusted Publishing through GitHub Actions
-OIDC. Long-lived PyPI API tokens are not allowed in repository secrets.
+Public package publishing must use PyPI Trusted Publishing through GitHub
+Actions OIDC. Long-lived PyPI API tokens are not allowed in repository secrets.
 
 Before any public PyPI release, the repository must have:
 

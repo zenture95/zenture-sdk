@@ -8,6 +8,14 @@ state.
 
 ## Unreleased
 
+- Synced the Public API OpenAPI artifact with pagination parameters for chats,
+  chat messages, and evaluations.
+- Added `limit` and `cursor` support plus sync/async iterator helpers for chat
+  summaries, chat messages, and evaluations.
+- Added pagination documentation and an executable pagination example.
+- Updated operation-error contract handling to match the current OpenAPI
+  `PublicOperationError` schema.
+
 ## 0.1.0b1 - 2026-06-15
 
 - Added SDK architecture and implementation plan.

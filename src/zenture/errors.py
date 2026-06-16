@@ -97,6 +97,42 @@ class ZentureTransportError(ZentureError):
     """Raised for client-side network and timeout failures."""
 
 
+class ZenturePollingTimeoutError(ZentureError):
+    """Raised when local operation polling exhausts its timeout budget."""
+
+    def __init__(
+        self,
+        message: str = "Operation polling timed out before terminal status.",
+        *,
+        operation_id: str | None = None,
+        idempotency_key: str | None = None,
+        last_request_id: str | None = None,
+    ) -> None:
+        self.message = redact_text(message)
+        self.operation_id = operation_id
+        self.idempotency_key = idempotency_key
+        self.last_request_id = last_request_id
+        super().__init__(self.message)
+
+
+class ZenturePollingStoppedError(ZentureError):
+    """Raised when caller-provided local stop cancels polling."""
+
+    def __init__(
+        self,
+        message: str = "Operation polling stopped before terminal status.",
+        *,
+        operation_id: str | None = None,
+        idempotency_key: str | None = None,
+        last_request_id: str | None = None,
+    ) -> None:
+        self.message = redact_text(message)
+        self.operation_id = operation_id
+        self.idempotency_key = idempotency_key
+        self.last_request_id = last_request_id
+        super().__init__(self.message)
+
+
 class ZentureResponseError(ZentureError):
     """Raised when a response cannot be parsed as the public contract."""
 

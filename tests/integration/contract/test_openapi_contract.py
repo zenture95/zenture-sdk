@@ -31,8 +31,11 @@ def test_openapi_contains_required_sdk_v1_contract() -> None:
 
     chat_request = schemas["ChatRequest"]
     assert chat_request["properties"]["mode"]["default"] == "single"
-    assert chat_request["properties"]["mode"]["enum"] == ["single", "multi"]
-    assert "agentic" not in chat_request["properties"]["mode"]["enum"]
+    assert chat_request["properties"]["mode"]["allOf"] == [
+        {"$ref": "#/components/schemas/ModelMode"}
+    ]
+    assert schemas["ModelMode"]["enum"] == ["single", "multi"]
+    assert "agentic" not in schemas["ModelMode"]["enum"]
     assert chat_request["properties"]["models"]["minItems"] == 1
     assert chat_request["properties"]["models"]["maxItems"] == 3
     assert chat_request["properties"]["models"]["uniqueItems"] is True
@@ -51,6 +54,18 @@ def test_openapi_contains_required_sdk_v1_contract() -> None:
         "evaluation",
         "unknown",
     }
+
+    operation_error = schemas["PublicOperationError"]
+    assert operation_error["type"] == "object"
+    assert operation_error["additionalProperties"] is False
+    assert operation_error["required"] == ["code", "message"]
+    assert operation_error["properties"]["code"]["type"] == "string"
+    assert operation_error["properties"]["message"]["type"] == "string"
+
+    operation_response = schemas["PublicOperationResponse"]
+    error_schema = operation_response["properties"]["error"]
+    assert {"$ref": "#/components/schemas/PublicOperationError"} in error_schema["anyOf"]
+    assert {"type": "null"} in error_schema["anyOf"]
 
 
 def test_openapi_api_token_management_routes_are_not_in_sdk_surface() -> None:
@@ -112,3 +127,47 @@ def test_openapi_idempotency_key_max_length_matches_sdk_limit() -> None:
             required_limits.add(cast("int", typed_schema["maxLength"]))
 
     assert required_limits == {MAX_IDEMPOTENCY_KEY_LENGTH}
+
+
+def test_openapi_pagination_parameters_match_sdk_contract() -> None:
+    contract = _load_openapi()
+    paths = contract["paths"]
+    paginated_paths = [
+        "/v1/chats",
+        "/v1/chats/{chat_id}/messages",
+        "/v1/evaluations",
+    ]
+
+    for path in paginated_paths:
+        parameters = paths[path]["get"]["parameters"]
+        by_name = {parameter["name"]: parameter for parameter in parameters}
+
+        limit = by_name["limit"]
+        assert limit["in"] == "query"
+        assert limit["required"] is False
+        assert limit["schema"]["type"] == "integer"
+        assert limit["schema"]["default"] == 50
+        assert limit["schema"]["minimum"] == 1
+        assert limit["schema"]["maximum"] == 100
+
+        cursor = by_name["cursor"]
+        assert cursor["in"] == "query"
+        assert cursor["required"] is False
+        assert cursor["schema"]["type"] == "string"
+        assert cursor["schema"]["minLength"] == 1
+        assert cursor["schema"]["maxLength"] == 200
+
+
+def test_openapi_collection_responses_keep_nullable_next_cursor() -> None:
+    contract = _load_openapi()
+    schemas = contract["components"]["schemas"]
+
+    for schema_name in [
+        "PublicChatCollectionResponse",
+        "PublicChatMessagesResponse",
+        "PublicEvaluationCollectionResponse",
+    ]:
+        next_cursor = schemas[schema_name]["properties"]["next_cursor"]
+        assert next_cursor["type"] == "string"
+        assert next_cursor["nullable"] is True
+        assert "Null means there is no further page" in next_cursor["description"]

@@ -116,8 +116,8 @@ class PublicOperationResult(SDKBaseModel):
 class PublicOperationError(SDKBaseModel):
     """Terminal operation error with domain-specific operation code."""
 
-    code: str = Field(min_length=1, max_length=140, pattern=r"^[a-z][a-z0-9_]*$")
-    message: str = Field(min_length=1, max_length=1000)
+    code: str
+    message: str
 
 
 class PublicOperationResponse(SDKBaseModel):
@@ -172,7 +172,7 @@ class PublicChatCollectionResponse(SDKBaseModel):
     """Public chat list response."""
 
     chats: tuple[PublicChatSummary, ...]
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(default=None, min_length=1, max_length=200)
 
     @field_validator("chats", mode="before")
     @classmethod
@@ -197,7 +197,7 @@ class PublicChatMessagesResponse(SDKBaseModel):
 
     chat_id: str = Field(pattern=r"^chat_[A-Za-z0-9_-]{3,128}$")
     turns: tuple[PublicChatTurn, ...]
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(default=None, min_length=1, max_length=200)
 
     @field_validator("turns", mode="before")
     @classmethod
@@ -223,7 +223,7 @@ class PublicEvaluationCollectionResponse(SDKBaseModel):
     """Public evaluation list response."""
 
     evaluations: tuple[PublicEvaluationResponse, ...]
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(default=None, min_length=1, max_length=200)
 
     @field_validator("evaluations", mode="before")
     @classmethod

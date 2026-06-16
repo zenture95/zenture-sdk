@@ -51,9 +51,12 @@ path = "src/zenture/_version.py"
 
 [tool.hatch.build.targets.sdist]
 include = [
+  "/AGENTS.md",
   "/CHANGELOG.md",
   "/CODE_OF_CONDUCT.md",
   "/CONTRIBUTING.md",
+  "/docs",
+  "/examples",
   "/LICENSE",
   "/NOTICE",
   "/openapi",

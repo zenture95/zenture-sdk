@@ -42,6 +42,24 @@ Repo-Zustand `zenture-sdk`:
 - Keine Implementierung, kein `pyproject.toml`, keine Package-Struktur.
 - Keine lokalen Git-Aenderungen vor Erstellung dieses Plans.
 
+Aktueller SDK-Plan Status:
+
+- Phase 0A Repository Governance Bootstrap: lokal umgesetzt und remote teilweise konfiguriert. GitHub Issues, merge settings, Actions read-only permissions, `pypi`/`testpypi` environments, Dependabot vulnerability alerts und automated security fixes sind eingerichtet. Branch Protection, secret scanning, push protection und protected environment reviewers sind auf dem aktuellen privaten GitHub-Plan blockiert und bleiben Go-Live-Gates.
+- Phase 1 Repo Foundation: umgesetzt. Das Repo hat moderne Python-Package-Metadaten, `src/zenture`, `py.typed`, Ruff, mypy strict, Pyright, pytest, build/twine CI, release workflow und Governance-Dokumente.
+- Phase 2 Core Runtime: umgesetzt und lokal verifiziert. Vorhanden sind strict Pydantic-basierte Core Models, redaction helpers, typed errors, idempotency helpers, rate-limit header parsing, `ZentureConfig`, retry policy, polling basics und sync/async httpx transport lifecycle mit Tests.
+- Security issue intake: GitHub Issues sind als erlaubter Bootstrap-Meldeweg dokumentiert; ein Security-Issue-Template ist lokal vorhanden.
+- Phase-2-Verifikation: Ruff format/check, mypy strict, Pyright, pytest, Coverage, sdist/wheel build und Twine metadata check sind lokal gruen. Coverage liegt aktuell ueber dem `90%` Gate.
+- Phase 3 Contract/Model Layer: abgeschlossen. Das aktuelle OpenAPI-Artefakt ist lokal unter `openapi/zenture-public-api-v1.openapi.json` gespiegelt und im sdist enthalten; `zenture._contract` enthaelt die interne minimale Contract-Schicht fuer Operationen, Errors, Requests, Read Responses und Rate-Limit Header. Contract-Drift-Tests pruefen `POST /v1/evaluate`, `missing_idempotency_key`, bounded `PublicOperationResult`, Request-Required-Felder, Phase-4-Response-Required-Felder, `Idempotency-Key` min/max Constraints, API-token Management Exclusion und Operation Status Alignment.
+- Phase 4 Resource Clients: abgeschlossen gegen den aktuell lokal gespiegelten OpenAPI-Contract. `Zenture`/`AsyncZenture`, private sync/async Transport Request-Helpers, `helloworld`, `operations`, `chat`, `models`, `input_wizard`, `evaluations`, `billing`, `usage` und `limits` sind implementiert und mit `httpx.MockTransport` getestet. `helloworld` sendet gemaess OpenAPI `x-zenture-auth-mode: none` keine Authorization Header; mutierende Routes senden validierte `Idempotency-Key` Header. SDK-owned sync/async HTTP Clients nutzen explizite Timeout-Defaults und die Request-Pfade verdrahten Retry-Entscheidungen inklusive `Retry-After`, Backoff und "kein Retry fuer mutierende Requests ohne Idempotency-Key".
+- Phase-4-Patch Model Discovery und Single-/Multi-Model Chat: umgesetzt. `GET /v1/models` ist lokal gespiegelt, `PublicModel`/`PublicModelListResponse` und `ModelMode` sind in der internen Contract-Schicht vorhanden, `client.models.list(mode=None|"single"|"multi")` ist sync/async implementiert, Chat validiert `mode`, `model` und `models` SDK-seitig, und Agentic Chat bleibt in V1 bewusst nicht public.
+- Phase 5 Operation-Polling und Pagination sind umgesetzt:
+  `operations.wait(...)` existiert sync/async, `chat.run(...)` nutzt den
+  generischen Wait-Pfad, und `input_wizard.run(...)` sowie
+  `evaluations.run(...)` sind sync/async vorhanden. Nach dem Gateway/OpenAPI
+  Pagination-Update unterstuetzen `chat.list(...)`,
+  `chat.messages(...)` und `evaluations.list(...)` `limit`/`cursor`; sync/async
+  Iteratoren laufen bis `next_cursor is None`.
+
 Relevante Plattformquellen:
 
 - `zenture-api-gateway/docs/PLAN_PUBLIC_API_GATEWAY.md`
@@ -63,7 +81,8 @@ V1 API-token Routen im aktuellen OpenAPI-Artefakt:
 - `GET /v1/helloworld`
 - `POST /v1/chat`
 - `POST /v1/input-wizard`
-- `POST /v1/evaluate` geplant und V1-pflichtig, aber im aktuellen `1.0.0-rc.2` Artefakt noch nicht enthalten
+- `POST /v1/evaluate`
+- `GET /v1/models`
 - `GET /v1/operations/{operation_id}`
 - `GET /v1/chats`
 - `GET /v1/chats/{chat_id}`
@@ -74,13 +93,15 @@ V1 API-token Routen im aktuellen OpenAPI-Artefakt:
 - `GET /v1/usage`
 - `GET /v1/limits`
 
-Contract-Gap vor SDK Beta:
+Aktueller Contract Checkpoint:
 
-- Der Plattformplan fordert Beispiele und API-Scope fuer `POST /evaluate`.
-- Das aktuelle OpenAPI-Artefakt `1.0.0-rc.2` enthaelt `GET /evaluations` und `GET /evaluations/{evaluation_id}`, aber kein `POST /evaluate`.
-- Finale Entscheidung: `POST /v1/evaluate` muss in V1 rein. Evaluation-Create ist ein Kernworkflow/USP und wird vor SDK-Beta in Gateway, Backend und OpenAPI ergaenzt.
-- SDK-seitig wird Evaluation-Create erst gegen den finalisierten OpenAPI-Contract implementiert, sobald `POST /v1/evaluate` vorhanden ist.
-- SDK Beta darf nicht shippen, solange Evaluation-Create im finalen Contract fehlt oder das SDK ihn nicht korrekt abbildet.
+- `POST /v1/evaluate` ist im lokal gespiegelten OpenAPI-Artefakt vorhanden.
+- `missing_idempotency_key` ist im `PublicErrorCode` Enum vorhanden.
+- `PublicOperationResult` ist bounded (`additionalProperties: false`) und safe-ref-first typisiert.
+- `GET /v1/models`, `PublicModel`, `PublicModelListResponse` und die ChatRequest-Felder `mode`, `model`, `models` sind im lokal gespiegelten OpenAPI-Artefakt vorhanden.
+- `mode` ist in V1 auf `single` und `multi` begrenzt; `agentic` ist kein public SDK-Modus.
+- API-token Management Routen bleiben im OpenAPI-Artefakt enthalten, sind aber `user_session` Routen und werden nicht Teil der API-token SDK Surface.
+- SDK Resource Clients werden erst nach gruenem Contract-Drift-Test und Generator-/Modellstrategie implementiert; dieser Check ist fuer Phase 4 und den Model-Discovery-Patch gruen.
 
 ## 4. Empfohlene Architektur
 
@@ -147,9 +168,13 @@ zenture-sdk/
 │       │   ├── limits.py
 │       │   ├── operations.py
 │       │   └── usage.py
+│       ├── _contract/
+│       │   ├── __init__.py
+│       │   ├── headers.py
+│       │   └── models.py
 │       └── _generated/
 │           ├── __init__.py
-│           └── ...
+│           └── ...  # optional future generated code only
 ├── openapi/
 │   ├── zenture-public-api-v1.openapi.json
 │   └── README.md
@@ -175,7 +200,7 @@ zenture-sdk/
 ├── tests/
 │   ├── unit/
 │   ├── integration/
-│   ├── contract/
+│   │   └── contract/
 │   ├── examples/
 │   └── fixtures/
 │       ├── http/
@@ -233,11 +258,9 @@ Das Package muss `py.typed` shippen.
 Primary usage:
 
 ```python
-import os
-
 from zenture import Zenture
 
-client = Zenture(api_key=os.environ["ZENTURE_API_KEY"])
+client = Zenture.from_env()
 
 message = client.helloworld()
 print(message)
@@ -246,11 +269,9 @@ print(message)
 Context-manager usage:
 
 ```python
-import os
-
 from zenture import Zenture
 
-with Zenture(api_key=os.environ["ZENTURE_API_KEY"]) as client:
+with Zenture.from_env() as client:
     result = client.input_wizard.run(
         prompt="Draft a concise onboarding prompt for a support chatbot.",
         idempotency_key="ticket-428-input-wizard-v1",
@@ -260,11 +281,9 @@ with Zenture(api_key=os.environ["ZENTURE_API_KEY"]) as client:
 Async usage:
 
 ```python
-import os
-
 from zenture import AsyncZenture
 
-async with AsyncZenture(api_key=os.environ["ZENTURE_API_KEY"]) as client:
+async with AsyncZenture.from_env() as client:
     result = await client.chat.run(
         message="Summarize the security posture of this architecture.",
         timeout=120.0,
@@ -281,15 +300,61 @@ client = Zenture.from_env()
 operation = client.chat.create_operation(
     message="Review this API design.",
     idempotency_key="customer-123-chat-design-review-001",
-    wait=False,
 )
 
-result = client.operations.wait(
-    operation.operation_id,
-    timeout=120.0,
-    poll_interval=2.0,
-)
+latest = client.operations.get(operation.operation_id)
+print(latest.status)
 ```
+
+Model discovery:
+
+```python
+from zenture import Zenture
+
+client = Zenture.from_env()
+
+single_models = client.models.list(mode="single")
+multi_models = client.models.list(mode="multi")
+
+print(single_models.models[0].id)
+print(multi_models.models[0].display_name)
+```
+
+Single-/Multi-Model Chat:
+
+```python
+from zenture import Zenture
+
+client = Zenture.from_env()
+
+single = client.chat.run(
+    message="Summarize this support transcript.",
+    mode="single",
+    model="public-model-a",
+    idempotency_key="case-123-chat-single-001",
+    timeout=120.0,
+)
+
+multi = client.chat.run(
+    message="Compare these candidate answers.",
+    mode="multi",
+    models=["public-model-a", "public-model-b"],
+    idempotency_key="case-123-chat-multi-001",
+    timeout=120.0,
+)
+
+print(single.operation_id)
+print(multi.status)
+```
+
+Rules:
+
+- `mode="single"` is the default, accepts optional `model`, and rejects
+  `models`.
+- `mode="multi"` requires 1 to 3 unique `models` and rejects `model`.
+- `agentic` is not a public V1 mode and must be rejected client-side.
+- The server remains the authority for model availability, plan, billing and
+  permission checks.
 
 Idempotency:
 
@@ -343,7 +408,7 @@ client = Zenture.from_env()
 evaluation = client.evaluations.get("eval_abc123")
 ```
 
-Evaluation create/run is V1-pflichtig, but implementation is gated on final OpenAPI support for `POST /v1/evaluate`:
+Evaluation create/run is V1-pflichtig and is present in the locally mirrored OpenAPI contract. SDK implementation belongs to Phase 4 after Phase 3 model/generator strategy is locked:
 
 ```python
 result = client.evaluations.run(
@@ -354,7 +419,7 @@ result = client.evaluations.run(
 )
 ```
 
-The create/run evaluation API must not be implemented until the OpenAPI contract exposes the route. Once present, SDK Beta must include it.
+SDK Beta must include evaluation create/run because the route is now part of the V1 SDK contract.
 
 `.run()` return shape:
 
@@ -396,13 +461,14 @@ Design-Regeln:
 
 Empfehlung: hybrider Ansatz.
 
-Generated:
+Contract-derived:
 
 - OpenAPI Artefakt wird in `openapi/zenture-public-api-v1.openapi.json` im SDK Repo gespiegelt.
-- Generated Code lebt unter `zenture._generated`.
-- Generated Code ist intern und wird nicht als primäre API dokumentiert.
-- Regeneration muss deterministisch sein und in CI geprueft werden.
-- Generated Typen duerfen als Grundlage dienen, wenn sie Pydantic v2 und striktes Typing sauber unterstuetzen.
+- Contract Code lebt unter `zenture._contract`.
+- Contract Code ist intern und wird nicht als primäre API dokumentiert.
+- Contract Drift wird deterministisch in CI gegen das lokale OpenAPI-Artefakt geprueft.
+- Generated Code unter `zenture._generated` bleibt eine optionale spaetere Erweiterung, falls ein Generator klare Vorteile liefert.
+- Contract Typen muessen Pydantic v2, `strict=True`, `extra="forbid"` und klare Typen/Enums nutzen.
 
 Handwritten:
 
@@ -410,7 +476,7 @@ Handwritten:
 - Public API Namen sollen produktnah sein, nicht operationId-nah.
 - Der handwritten Layer glättet Gateway-Details, ohne Contract-Semantik zu verstecken.
 
-Tooling-Entscheidung vor Implementierung:
+Tooling-Entscheidung fuer Phase 3:
 
 - Kandidaten pruefen: `openapi-python-client`, `datamodel-code-generator`, eigener minimaler Generator fuer Pydantic Models.
 - Entscheidungskriterium: Typqualitaet, Pydantic v2 Support, deterministische Diffs, geringe Dependency-Last, gute Kontrolle ueber Public API.
@@ -420,11 +486,37 @@ Generator-Evaluation:
 
 | Option | Vorteil | Risiko | Vorlaeufige Bewertung |
 | --- | --- | --- | --- |
-| `openapi-python-client` | Vollstaendiger Client aus OpenAPI, schnelle Abdeckung vieler Operationen | Output kann zu viel Public Surface erzeugen, Sync/Async Ergonomie und Pydantic-v2-Qualitaet muessen kritisch geprueft werden | Nur nutzen, wenn Output reviewbar, stabil und klar intern isolierbar ist |
-| `datamodel-code-generator` | Gut fuer contract-derived Pydantic Models, Transport bleibt kontrolliert handgeschrieben | Liefert keinen ergonomischen Client; zusaetzliche Glue-Schicht noetig | Gute Default-Tendenz fuer Models, wenn Output klein und deterministisch bleibt |
-| Eigener minimaler Generator | Maximale Kontrolle, minimale Public Surface, exakt auf zenture Contract zugeschnitten | Wartungsaufwand und Generator-Bugs liegen komplett bei zenture | Gute Option, wenn nur Models/Enums/contract checks noetig sind |
+| `openapi-python-client` | Vollstaendiger Client aus OpenAPI, schnelle Abdeckung vieler Operationen | Zu viel Operation-/Client-Surface fuer Phase 3; Generator-Output wuerde Public-API-Review erschweren; Sync/Async Ergonomie bleibt trotzdem handzuschneiden | Nicht fuer Phase 3 verwenden |
+| `datamodel-code-generator` | Gut fuer contract-derived Pydantic Models, Transport bleibt kontrolliert handgeschrieben | Fuer die aktuell benoetigten Schemas mehr Tooling als Nutzen; Output-Style und Diff-Stabilitaet muessten separat gepinnt und reviewed werden | Zurueckstellen, bis Contract-Breite groesser wird |
+| Eigener minimaler contract-derived Layer | Maximale Kontrolle, minimale Public Surface, exakt auf zenture V1 Kernschemas zugeschnitten, keine neue Generator-Dependency | Manuelle Pflege erfordert Drift-Tests gegen OpenAPI | Gewaehlt fuer Phase 3 |
 
-Aktuelle Empfehlung: handwritten ergonomic SDK plus Pydantic Models plus contract-derived checks. Ein Generator wird nur eingesetzt, wenn sein Output klein, deterministisch, typstark und fuer externe Reviews gut lesbar bleibt.
+Phase-3-Entscheidung: eigener minimaler interner `zenture._contract` Layer. Begruendung: Die aktuell benoetigten V1-Kernschemas sind klein, bounded und sicherheitsrelevant; Reviewbarkeit, strikte Typisierung, kleine Module und geringe Public Surface sind wichtiger als ein vollstaendiger generierter Client. Generatoren bleiben spaetere Optionen, wenn mehr Contract-Abdeckung gebraucht wird und ein reproduzierbarer Output-Gate etabliert ist.
+
+Implementierter Phase-3-Contract-Layer:
+
+- `zenture._contract.models`
+  - `OperationStatus`
+  - `PublicErrorCode`
+  - `PublicError`
+  - `PublicErrorEnvelope`
+  - `PublicOperationError`
+  - `PublicOperationResult`
+  - `PublicOperationResponse`
+  - `ChatRequest`
+  - `InputWizardRequest`
+  - `EvaluateRequest`
+- `zenture._contract.headers`
+  - `RATE_LIMIT_HEADER_NAMES`
+  - interne Re-Exports fuer `RateLimitInfo` und `parse_rate_limit_headers`
+- Keine Exports aus `zenture.__init__`.
+- Keine API-token Management Models oder Resource Surface.
+- Response Models validieren API-JSON-kompatible Enum-Strings fuer bounded Contract Enums und bleiben ansonsten strict.
+- `PublicOperationResult.completed_at` wird als timezone-aware datetime validiert.
+- Operation-Fehler sind bewusst von Gateway-Error-Envelopes getrennt:
+  `PublicOperationError.code` ist ein bounded string fuer domain-spezifische
+  terminale Operation-Codes wie `chat_execution_failed`; HTTP/Gateway-Errors
+  bleiben ueber `PublicErrorCode` und SDK-Exceptions modelliert.
+- Drift-Tests vergleichen Enums, required fields, bounded result shape, Rate-Limit Header und API-token Management Exclusion gegen das lokale OpenAPI-Artefakt.
 
 ## 10. Pydantic Models Und Typing
 
@@ -432,7 +524,7 @@ Pydantic v2 ist Pflicht fuer Request/Response Models.
 
 Model-Regeln:
 
-- `model_config = ConfigDict(extra="forbid", frozen=True)` fuer public response/value models, soweit sinnvoll.
+- `model_config = ConfigDict(extra="forbid", frozen=True, strict=True)` fuer public response/value models und interne Contract Models, soweit sinnvoll.
 - Keine Secrets in `repr`.
 - API Key wird nicht als Pydantic-Feld mit normalem repr modelliert.
 - DateTimes als timezone-aware `datetime`.
@@ -460,7 +552,7 @@ OpenAPI aktuell bekannte Error Codes:
 - `forbidden`
 - `rate_limited`
 - `validation_failed`
-- `missing_idempotency_key` geplant als stabiler V1 Error Code mit HTTP `400`
+- `missing_idempotency_key`
 - `dependency_unavailable`
 - `capacity_unavailable`
 - `internal_error`
@@ -469,9 +561,9 @@ OpenAPI aktuell bekannte Error Codes:
 
 Error-Code Entscheidung:
 
-- Fehlender `Idempotency-Key` bekommt einen stabilen Error Code `missing_idempotency_key` mit HTTP `400`.
+- Fehlender `Idempotency-Key` nutzt den stabilen Error Code `missing_idempotency_key` mit HTTP `400`.
 - `validation_failed` bleibt fuer sonstige Body-, Path-, Query- und Header-Validation.
-- OpenAPI, Gateway, Docs und SDK muessen diesen Error Code vor SDK Beta konsistent enthalten.
+- OpenAPI, Gateway, Docs und SDK muessen diesen Error Code konsistent enthalten; der SDK-Contract-Test sichert das OpenAPI-Alignment lokal ab.
 
 ## 11. HTTPX Nutzung
 
@@ -481,12 +573,17 @@ Client Optionen:
 
 ```python
 Zenture(
-    api_key: str | None = None,
-    base_url: str = "https://api.zenture.app",
-    timeout: float | httpx.Timeout | None = None,
-    transport: httpx.BaseTransport | None = None,
+    api_key: str,
+    base_url: str | None = None,
+    http_client: httpx.Client | None = None,
     user_agent: str | None = None,
-    max_retries: int = 2,
+    connect_timeout: float | None = None,
+    read_timeout: float | None = None,
+    write_timeout: float | None = None,
+    pool_timeout: float | None = None,
+    max_retries: int | None = None,
+    initial_retry_backoff: float | None = None,
+    max_retry_backoff: float | None = None,
 )
 ```
 
@@ -494,7 +591,10 @@ Defaults:
 
 - `base_url`: `https://api.zenture.app`
 - `timeout`: connect `5s`, read/write/pool `30s`; long operation waiting uses polling timeout, not HTTP read timeout.
-- `User-Agent`: `zenture-sdk-python/{sdk_version} python/{major.minor} openapi/{contract_version}`
+- `max_retries`: `2`
+- `initial_retry_backoff`: `0.5s`
+- `max_retry_backoff`: `8s`
+- `User-Agent`: `zenture-sdk-python/{sdk_version}` by default, overrideable by caller-owned server integrations.
 - Headers:
   - `Authorization: Bearer <api_key>`
   - `Content-Type: application/json` for JSON requests
@@ -505,8 +605,17 @@ Rules:
 - No API key in URL.
 - No automatic environment lookup except `Zenture.from_env()`.
 - `from_env()` reads `ZENTURE_API_KEY`.
-- `ZENTURE_BASE_URL` may be supported only for local debugging and INT usage. Public docs must state that base URLs must never come from user input.
-- Base URL validation rejects obvious frontend/backend internal paths by default.
+- Public docs should prefer `Zenture.from_env()` / `AsyncZenture.from_env()`
+  over examples that pass token material directly to Python constructors.
+- Caller-provided `httpx.Client` / `httpx.AsyncClient` instances are accepted for
+  advanced integrations and tests. The caller remains responsible for their
+  timeout, limits and lifecycle policy.
+- `ZENTURE_BASE_URL` is supported only for local debugging and INT usage. Public docs must state that base URLs must never come from user input.
+- Base URL validation allows only:
+  - `https://api.zenture.app`
+  - `https://api-int.zenture.app`
+  - local debugging origins on `localhost`, `127.0.0.1`, or `::1`
+- Base URL validation rejects arbitrary HTTPS origins such as `https://evil.example`, URL credentials, paths, query strings and fragments.
 - The SDK appends the versioned `/v1` API path internally unless a final transport design explicitly stores `base_url` as the versioned API root. Public examples should use the production origin `https://api.zenture.app`.
 - Tests use `respx` or `httpx.MockTransport`; no network by default.
 
@@ -561,6 +670,8 @@ Unknown future error codes:
 - Preserve raw code as string.
 - Raise `ZentureAPIError`, not a generic `ValueError`.
 - Include `request_id` and HTTP status.
+- `error_from_response(...)` uses the explicitly named forward-compatible `ForwardCompatibleErrorEnvelope`, not the strict `_contract.PublicErrorEnvelope`, so future public error codes remain observable without widening the internal contract model.
+- There must not be two same-named SDK models with different error-envelope semantics.
 
 ## 13. Polling Helpers Fuer Async Operations
 
@@ -570,7 +681,16 @@ High-level `.run()` helpers:
 - Poll until terminal status.
 - Return a typed `OperationRunResult`, never a naked domain answer.
 - Auto-generate an idempotency key only when the method is explicitly high-level and exposes generated metadata.
-- Include at least `operation_id`, `status`, `result`, `idempotency_key`, and optional `request_id`/`last_request_id`.
+- Include at least `operation_id`, `status`, `result`, `error`,
+  `idempotency_key`, and optional `request_id`/`last_request_id`.
+- If create succeeds but local polling later times out or is stopped, raise a
+  polling exception with safe recovery attributes `operation_id`,
+  `idempotency_key`, and optional `last_request_id`. These attributes are for
+  explicit caller recovery and must not be interpolated into exception
+  `str()`/`repr()`.
+- Recovery path: call `operations.get(operation_id)` or retry with the same
+  `idempotency_key`. Do not retry a billable mutation with a newly generated key
+  after local polling failure.
 
 Operation result typing:
 
@@ -590,17 +710,21 @@ Polling defaults:
 
 - Initial interval: `1.0s`
 - Max interval: `8.0s`
-- Jitter: full or decorrelated jitter, bounded.
+- Phase 5 uses deterministic bounded interval progression for testability:
+  double the current interval until `max_interval`, with no jitter.
 - Timeout: caller-provided; recommended examples use `120s`.
 - Stop on terminal statuses: `succeeded`, `failed`, `cancelled`, `expired`.
-- Honor `Retry-After` and `RateLimit-Reset`.
-- Treat 429 during polling as retryable with server-guided wait.
+- `Retry-After` handling remains in the existing HTTP transport retry path.
+  Phase 5 does not add a separate polling-header wait layer.
+- Treat 429 during polling as retryable only through the existing transport
+  retry policy.
 - Treat `operation_expired` as terminal non-retryable.
 
 Cancellation:
 
 - Sync polling accepts a `stop: Callable[[], bool] | None`.
-- Async polling accepts cooperative cancellation via task cancellation and optional async stop callback.
+- Async polling propagates `asyncio.CancelledError` from task cancellation and
+  accepts the same optional local stop callable.
 - If local polling is cancelled, SDK does not imply server-side cancellation unless a future API adds a cancellation endpoint.
 
 ## 14. Idempotency-Key UX
@@ -623,7 +747,8 @@ key = idempotency_key("customer-123", "chat", "2026-06-14T12:00:00Z")
 
 Implementation:
 
-- Validate key length and allowed characters once OpenAPI/header constraints are final.
+- Validate key length against OpenAPI: `minLength=1`, `maxLength=255`.
+- Keep the SDK safe-character policy intentionally narrower than OpenAPI for ergonomics and secret/PII avoidance; document this as SDK-side safety policy, not gateway contract.
 - Provide `IdempotencyKey` type alias.
 - Do not hash keys silently; users need stable keys for support and replay correlation.
 - Docs should recommend caller-owned business IDs and stable operation IDs.
@@ -642,21 +767,30 @@ Default `50` is the best tradeoff for the SDK: it keeps API usage efficient for 
 
 SDK helpers:
 
-- List methods accept `limit: int | None = None` and `cursor: str | None = None`.
-- List methods return typed page objects with `items` and `next_cursor`.
-- Resource clients expose sync and async paginator helpers:
-  - `client.chats.list_pages(limit=50)`
-  - `client.chats.iter(limit=50)`
-  - `async for chat in client.chats.aiter(limit=50): ...`
+- List methods accept `limit: int = 50` and `cursor: str | None = None`.
+- List methods return typed page objects with resource-specific item fields
+  and `next_cursor`.
+- Resource clients expose sync and async iterator helpers:
+  - `client.chat.iter(limit=50, cursor=None)`
+  - `client.chat.iter_messages(chat_id, limit=50, cursor=None)`
+  - `client.evaluations.iter(limit=50, cursor=None)`
+  - `async for chat in client.chat.iter(limit=50): ...`
 - Iterators must be lazy and stop when `next_cursor` is absent.
 - Iterators must not hide API errors or rate limits.
 - Tests must cover page boundaries, empty pages, max-limit validation, and cursor propagation.
+
+Current checkpoint:
+
+- The locally mirrored OpenAPI artifact exposes `limit` and `cursor` query
+  parameters on `GET /v1/chats`, `GET /v1/chats/{chat_id}/messages` and
+  `GET /v1/evaluations`, plus nullable `next_cursor` responses.
+- Phase 5 implements typed paginated reads and iterator helpers sync/async.
 
 ## 16. Retry, Timeout Und Backoff Policy
 
 Retryable by default:
 
-- `GET` requests on transient network errors.
+- Retryable HTTP error responses for safe methods.
 - `GET /v1/operations/{operation_id}` polling.
 - 429 with `Retry-After`.
 - 503 for `dependency_unavailable` or `capacity_unavailable`.
@@ -671,16 +805,31 @@ Not retryable by default:
 
 Backoff:
 
-- Exponential backoff with jitter.
+- Deterministic exponential backoff.
 - Cap per-attempt sleep.
 - Respect server `Retry-After` over client guess.
 - Expose retry metadata only in debug-safe form.
 
 Timeouts:
 
+- SDK-owned HTTP clients use explicit defaults: connect `5s`,
+  read/write/pool `30s`.
+- Callers may override individual timeout values on `Zenture` and
+  `AsyncZenture`.
 - HTTP request timeout is separate from operation polling timeout.
 - `run(timeout=...)` means total operation wait budget, not raw HTTP read timeout.
 - Create request may pass `wait=false` or `wait=0` for immediate async behavior when supported by contract.
+
+Current implementation checkpoint:
+
+- Sync and async `_request(...)` paths apply the shared retry decision policy.
+- `Retry-After` is honored before deterministic exponential backoff.
+- Mutating requests are not retried unless an `Idempotency-Key` is present.
+- `missing_idempotency_key` and other non-retryable public error codes are not
+  retried.
+- Client-side `httpx.HTTPError` network exceptions are mapped to
+  `ZentureTransportError` and are not retried yet; adding network-exception
+  retry classification is a separate Phase-5 decision.
 
 ## 17. Redaction Und Secret Handling
 
@@ -692,7 +841,11 @@ Non-negotiable:
 - Prompt and model-answer text are considered sensitive content.
 - Billing/payment payloads are considered sensitive.
 - Examples load tokens from env vars only.
-- Fixtures use fake tokens such as `zt_test_redacted_000000`.
+- Public examples must not hardcode token-like strings in Python files. Local
+  `.env` files are acceptable only when uncommitted and loaded into the process
+  environment before creating the SDK client.
+- Fixtures use synthetic non-secret placeholders only; tests must never use real
+  token prefixes with realistic entropy.
 
 Public object repr:
 
@@ -727,6 +880,7 @@ If logging is added:
 
 Unit tests:
 
+- Located under `tests/unit/`.
 - Error mapping per public error code.
 - Rate-limit header parsing.
 - Retry decision matrix.
@@ -738,6 +892,8 @@ Unit tests:
 
 Mocked HTTP integration tests:
 
+- Located under `tests/integration/`; contract drift tests live under
+  `tests/integration/contract/`.
 - `helloworld`
 - `input_wizard.create_operation`
 - `input_wizard.run`
@@ -763,8 +919,9 @@ Contract tests:
 - SDK examples only call endpoints present in OpenAPI.
 - Error code enum matches OpenAPI plus documented unknown fallback.
 - Operation status enum matches OpenAPI.
-- `POST /v1/evaluate` is present before SDK Beta and mapped by evaluation create/run helpers.
-- `missing_idempotency_key` is present before SDK Beta and maps to the typed SDK error.
+- `POST /v1/evaluate` is present in the committed OpenAPI artifact.
+- `missing_idempotency_key` is present in the committed OpenAPI artifact and maps to the typed SDK error.
+- `PublicOperationResult` remains bounded and safe-ref-first.
 - Routes requiring idempotency in OpenAPI require keys in SDK low-level methods.
 - Pagination defaults and max limits match OpenAPI/docs.
 - `user_session` endpoints are excluded from API-token SDK surface.
@@ -818,11 +975,13 @@ Typing rules:
 GitHub Actions:
 
 - `ci.yml`
+  - Python `3.11`, `3.12` and `3.13`
   - Ruff format check
   - Ruff lint
   - Mypy strict
   - Pyright
-  - Pytest with coverage
+  - Pytest through `coverage run`
+  - Coverage report enforcing `fail_under = 90`
   - Contract drift check
   - Example tests
   - Build package
@@ -860,7 +1019,8 @@ Least privilege:
 
 Prerelease:
 
-- Internal prerelease versions: `0.1.0aN` or `0.1.0rcN`.
+- Internal prerelease versions: `0.1.0aN`, `0.1.0bN` or `0.1.0rcN`.
+- Current local package version checkpoint: `0.1.0b1`.
 - Target OpenAPI release candidate, e.g. `1.0.0-rc.N`.
 - First distribution is an internal wheel/GitHub Actions artifact.
 - TestPyPI is optional after package metadata freeze.
@@ -916,9 +1076,9 @@ Examples required before Beta:
 - Error handling
 - `usage`/billing read
 - Async chat
-- Evaluation create/run, once `POST /v1/evaluate` is present in the final OpenAPI contract
+- Evaluation create/run
 
-Evaluation create example is mandatory for SDK Beta, but implementation remains gated on final OpenAPI support for `POST /v1/evaluate`.
+Evaluation create example is mandatory for SDK Beta.
 
 ## 23. Versioning Und Contract Alignment
 
@@ -1015,8 +1175,9 @@ This phase is intentionally pulled forward before SDK implementation. It creates
 
 Phase 0B: Contract decision checkpoint
 
-- Verify `POST /v1/evaluate` is present in the finalized OpenAPI contract before SDK Beta.
+- Verify `POST /v1/evaluate` is present in the committed OpenAPI contract.
 - Verify final OpenAPI error code catalog includes `missing_idempotency_key`.
+- Verify bounded safe-ref-first `PublicOperationResult`.
 - Confirm OpenAPI idempotency header constraints.
 - Verify package name availability on PyPI again before public package publication.
 - Verify repository governance bootstrap is complete before SDK feature implementation.
@@ -1031,8 +1192,9 @@ Phase 1: Repo foundation
 Phase 2: Core runtime
 
 - Implement config, redaction, errors, rate-limit parsing, retry policy, idempotency helpers.
-- Implement sync/async transport with httpx.
+- Implement sync/async transport with httpx lifecycle primitives.
 - Add unit tests for all core policies.
+- Current status: complete. The core runtime is intentionally limited to reusable SDK primitives; public `Zenture`/`AsyncZenture` clients and resource methods start after Phase 3 contract/model work.
 
 Phase 3: Models and generated layer
 
@@ -1040,6 +1202,7 @@ Phase 3: Models and generated layer
 - Select generator.
 - Generate or handcraft Pydantic model baseline.
 - Add regeneration and contract drift checks.
+- Current status: complete for the Phase-3 baseline. The selected strategy is a minimal handwritten/contract-derived `zenture._contract` layer with OpenAPI drift tests; no full generated client is introduced.
 
 Phase 4: Resource clients
 
@@ -1047,21 +1210,84 @@ Phase 4: Resource clients
 - Implement `operations`.
 - Implement `chat`.
 - Implement `input_wizard`.
-- Implement evaluation create/run once `POST /v1/evaluate` is in the final OpenAPI contract.
+- Implement evaluation create.
 - Implement read resources: chats, evaluations, billing, usage, limits.
 - Exclude API-token management routes.
+- Wire transport request paths to the shared retry, timeout and idempotency
+  safety policies.
+- Current status: complete against the current OpenAPI artifact. Public clients expose `operations`, `chat`, `models`, `input_wizard`, `evaluations`, `billing`, `usage`, `limits` and `helloworld`; API-token management routes remain excluded. Runtime implementation packages are private (`zenture._transport`, `zenture._resources`) to avoid accidental public API expansion. SDK-owned HTTP clients now use explicit timeout defaults, and sync/async request paths retry only retryable HTTP responses under the shared policy.
 
-Phase 5: Polling, retries and idempotent run helpers
+Phase 5: Polling, retries, pagination and idempotent run helpers
 
-- Implement `.run()` helpers.
-- Implement operation wait semantics.
-- Add timeout/cancellation/rate-limit tests.
+- Extend `.run()` helpers beyond `chat.run(...)` where product UX requires it.
+- Implement generic operation wait semantics.
+- Current status: complete for generic operation waiting and run-helper
+  unification. `operations.wait(...)` returns the terminal
+  `PublicOperationResponse`; timeout and local stop raise redacted SDK
+  exceptions; async task cancellation propagates.
+- Implemented run helpers: `chat.run(...)`, `input_wizard.run(...)`,
+  `evaluations.run(...)`, sync and async.
+- Implemented pagination helpers after OpenAPI exposed `limit` and `cursor`:
+  `chat.list(limit=50, cursor=None)`, `chat.messages(...)`,
+  `evaluations.list(...)`, `chat.iter(...)`, `chat.iter_messages(...)`, and
+  `evaluations.iter(...)`, sync and async.
+- Design decision: deterministic polling intervals only; jitter is deferred.
+- Deferred: separate polling-layer `Retry-After`/rate-limit scheduling and
+  client-side network exception retry classification. Existing transport
+  retry behavior remains the only retry layer.
+- Added timeout, cancellation, failed-operation, cancelled/expired terminal,
+  interval progression and idempotency-safety tests.
 
-Phase 6: Docs and examples
+Phase 6: Docs, examples and public README
 
-- Write README quickstart.
-- Add examples and mocked example tests.
-- Write API docs and security docs.
+- Current status: complete for public beta documentation scope.
+- README is beta-oriented and public-safe: install, package/import names,
+  supported Python versions, server-side token warning, webapp token creation,
+  env setup, sync/async quickstarts, model discovery, chat, input wizard,
+  evaluations, operation polling, idempotency, errors, retry/rate-limit policy,
+  base URL policy, local verification, security disclosure, and license.
+- Public docs exist under `docs/` for authentication, idempotency,
+  async operations, errors, rate limits, security, API overview, and release.
+- Executable examples exist under `examples/` and use `Zenture.from_env()` or
+  `AsyncZenture.from_env()` with no token literals.
+- Docs/examples hygiene tests verify public-safe content, compile examples, and
+  prevent forbidden token, base URL, and private-path patterns.
+- Pagination documentation and examples cover `limit`, `cursor`, `next_cursor`
+  and iterator helpers.
+
+Phase 6B: Human and agent onboarding documentation
+
+This phase runs after SDK core logic and docs/examples work, but before the
+critical review gate and INT/prerelease testing. The goal is to make the
+repository self-explanatory for external developers and future coding agents
+without relying on private planning context.
+
+- Update `README.md` as the human entrypoint:
+  - explain what `zenture-sdk` is and is not;
+  - show install, configuration, sync and async quickstarts;
+  - document the resource layout, operation polling model, idempotency, typed errors, retries, pagination, and rate-limit handling;
+  - explain base URL behavior: production default, INT/local only for controlled debugging;
+  - link to public API docs and public support/security channels;
+  - clearly state that API-token management routes are not part of the SDK surface.
+- Add root `AGENTS.md` as the agent entrypoint:
+  - summarize repository purpose, package/import names, architecture, module map, and public vs internal surfaces;
+  - name OpenAPI as the contract source of truth and explain the `_contract` drift-test strategy;
+  - list required local commands for formatting, linting, typing, tests, coverage, build, twine check, and secret scans;
+  - document security red lines: never log tokens, never persist plaintext API keys, never expose internal gateway/backend paths, never add arbitrary base URL origins, and never export internal `_contract` names from the top-level package;
+  - define contribution expectations for new resources, models, examples, docs, and tests.
+- Keep both files public-safe:
+  - no private repository paths;
+  - no private deployment details;
+  - no credentials, tokens, internal customer data, raw payloads, or private planning notes;
+  - no instructions that require access to zenture private infrastructure.
+- Add or update lightweight docs tests/grep checks proving:
+  - `README.md` covers install, quickstart, sync, async, polling, idempotency, errors, retries, rate limits, and security;
+  - `AGENTS.md` covers architecture, module map, commands, contract drift, and security red lines;
+  - neither file mentions private paths, `.env` secrets, internal gateway/backend URLs, or fake real-looking live tokens.
+- Current status: complete. Root `AGENTS.md` is public-safe and documents repo
+  purpose, package/import names, architecture map, public versus internal
+  surface, OpenAPI contract drift, required commands, security red lines, and
+  contribution expectations.
 
 Phase 7: Critical review gate
 
@@ -1069,8 +1295,10 @@ Phase 7: Critical review gate
 - Fix all prerelease blockers.
 - Verify static quality, package build and no-network tests.
 
-Phase 8: Prerelease readiness
+Phase 8: Prerelease Readiness / Pre-Go-Live Config
 
+- Start only after Phase 6B onboarding documentation and Phase 7 critical
+  review gate are complete.
 - Internal wheel/GitHub Actions artifact.
 - Optional TestPyPI dry run after package metadata freeze.
 - Trusted Publishing verification.
@@ -1092,13 +1320,65 @@ This phase is mandatory before the repository is made public. The goal is to ens
 - Record the public initial commit SHA in the release notes and SDK release checklist.
 - Configure public branch protection, required CI, CODEOWNERS, secret scanning, Dependabot/Renovate, protected release environments, and Trusted Publishing on the public repository before public PyPI beta.
 
+Phase 10: Final public go-live safety gate
+
+This is the last mandatory gate before switching the repository to public visibility or publishing a public PyPI beta/stable release. It must be executed from the clean public snapshot/orphan history created in Phase 9, not from the private development history.
+
+- Confirm repository visibility is still private before the checklist starts.
+- Confirm the default branch points to the clean public initial commit/history.
+- Confirm no private branches, stale release branches, experimental branches, or private tags remain on the remote.
+- Confirm `git log --all --stat` and repository file listing contain no private planning churn, local artifacts, `.env` files, credentials, customer data, raw API payloads, private OpenAPI drafts, or generated temp files.
+- Run a final secret scan on the exact tree that will become public.
+- Run the full public CI on the clean public branch: Ruff, mypy strict, Pyright, pytest, coverage, examples, OpenAPI drift checks, build, and `twine check`.
+- Enable branch protection or rulesets on `main` before accepting external work.
+- Require pull requests before merge.
+- Require CODEOWNERS review.
+- Require required status checks for governance, Python versions, package build, docs/examples, and contract drift.
+- Dismiss stale approvals.
+- Require conversation resolution.
+- Require linear history.
+- Block force pushes and branch deletion.
+- Apply branch protection to administrators where the GitHub plan supports it.
+- Enable secret scanning and push protection before changing visibility to public.
+- Enable Dependabot alerts, Dependabot security updates, and Dependabot/Renovate dependency PRs.
+- Disable unused repository features such as wiki/projects unless intentionally needed.
+- Confirm Issues are enabled and issue templates warn against posting secrets, customer data, or exploit instructions.
+- Confirm `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `NOTICE`, `LICENSE`, `CHANGELOG.md`, `README.md`, `AGENTS.md`, docs, and examples are public-safe.
+- Confirm GitHub Actions default token permissions are read-only.
+- Confirm release workflows grant `id-token: write` only for publishing jobs.
+- Confirm `pypi` and `testpypi` environments exist; `pypi` requires manual approval/reviewer where the GitHub plan supports it.
+- Configure PyPI Trusted Publishing against the final repository owner/name, workflow file, and `pypi` environment.
+- Verify PyPI project name `zenture-sdk` is still available or already controlled by zenture.
+- Publish only from a protected version tag.
+- Verify the built wheel/sdist install cleanly in a fresh virtual environment.
+- Verify README renders correctly on PyPI/TestPyPI before stable release.
+- Switch repository visibility to public only after all previous items pass.
+- After visibility switch, re-check branch protection, secret scanning, CODEOWNERS, Actions permissions, environments, and Dependabot settings because availability may change between private and public visibility.
+- Create the GitHub Release only after the public repository settings are verified.
+- Publish public PyPI beta/stable only after the public repository settings and release artifact checks are verified.
+- Record final go-live evidence: public initial commit SHA, OpenAPI contract version, SDK version, CI run URL, package artifact hashes, PyPI release URL, and reviewer approval.
+
 ## 27. Offene Fragen
 
-1. Welche exakten Header-Constraints gelten fuer `Idempotency-Key`?
-2. Welche safe-ref Felder enthaelt `PublicOperationResult` exakt fuer chat, input wizard und evaluate?
-3. Welcher Generator erfuellt nach kurzer Evaluation die Typqualitaets- und Determinismus-Anforderungen am besten?
-4. Wer ist Owner fuer PyPI project reservation, public GitHub repo setup, branch protection, CODEOWNERS und Trusted Publishing?
-5. Gibt es route-spezifische Pagination Defaults, die vom allgemeinen SDK Default `50` abweichen muessen?
+1. Soll die SDK Safe-Character-Policy fuer `Idempotency-Key` langfristig exakt
+   im OpenAPI Contract formalisiert werden? Aktueller Stand: OpenAPI beschreibt
+   Bounds und eine SDK-safe Policy in Textform; ein striktes Pattern bleibt
+   offen fuer eine spaetere Gateway-Kompatibilitaetsentscheidung.
+2. Wird `PublicOperationResult` in Phase 3 als ein gemeinsames bounded Model
+   modelliert oder zusaetzlich durch route-spezifische Convenience-Wrappers
+   ergaenzt? Aktueller Stand: gemeinsames bounded Model ist fuer V1 beta
+   umgesetzt; Convenience-Wrappers bleiben post-beta optional.
+3. Welcher Generator erfuellt nach kurzer Evaluation die Typqualitaets- und
+   Determinismus-Anforderungen am besten? Erledigt fuer V1 beta: kein voller
+   generierter Client; minimaler interner `_contract` Layer plus OpenAPI
+   Drift-Tests.
+4. Wer ist Owner fuer PyPI project reservation, public GitHub repo setup,
+   branch protection, CODEOWNERS und Trusted Publishing? Offen und Phase-8/9
+   Release-Governance-Blocker.
+5. Gibt es route-spezifische Pagination Defaults, die vom allgemeinen SDK
+   Default `50` abweichen muessen? Erledigt fuer V1 beta: Gateway/OpenAPI und
+   SDK nutzen default `50`, min `1`, max `100` fuer Chats, Chat-Messages und
+   Evaluations.
 
 ## 28. Beta Readiness Checklist
 
@@ -1123,4 +1403,5 @@ This phase is mandatory before the repository is made public. The goal is to ens
 - Public repository is created from a clean reviewed snapshot/orphan initial commit, not from private development history.
 - Public GitHub repo under zenture org has branch protection, required CI, CODEOWNERS, secret scanning and dependency automation.
 - Trusted Publishing configured.
+- Phase 10 final public go-live safety gate completed with recorded evidence.
 - Critical review gate completed.

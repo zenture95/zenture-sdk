@@ -50,3 +50,12 @@ def test_ci_enforces_coverage_gate_and_python_313() -> None:
     assert '"3.13"' in ci
     assert "python -m coverage run -m pytest" in ci
     assert "python -m coverage report" in ci
+
+
+def test_package_artifact_and_install_smoke_scripts_are_wired_into_ci() -> None:
+    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert Path("scripts/check_package_artifacts.py").is_file()
+    assert Path("scripts/smoke_install_wheel.py").is_file()
+    assert "python scripts/check_package_artifacts.py dist" in ci
+    assert "python scripts/smoke_install_wheel.py dist" in ci

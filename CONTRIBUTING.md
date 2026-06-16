@@ -1,18 +1,21 @@
 # Contributing
 
-`zenture-sdk` is being prepared as a public Python SDK for the zenture Public API.
-The repository is currently in planning/bootstrap state. Runtime SDK implementation
-starts only after the Public API OpenAPI contract is finalized for SDK beta.
+`zenture-sdk` is the public Python SDK for the zenture Public API. The current
+repository contains the runtime SDK, typed contract layer, public docs,
+examples, and packaging configuration used for prerelease validation.
 
 ## Development Standards
 
-- Keep public APIs typed.
-- Use Pydantic models for public request and response data.
+- Keep public APIs typed and exposed through `Zenture`, `AsyncZenture`, and
+  resource attributes such as `client.chat`.
+- Keep `_transport`, `_resources`, and `_contract` as implementation
+  namespaces.
+- Use Pydantic models for request, response, and configuration validation.
 - Use `httpx` for sync and async HTTP transport.
 - Do not log secrets, prompts, raw request bodies, or raw response bodies.
-- Keep generated OpenAPI code isolated under `zenture._generated`.
-- Keep hand-written modules small and reviewable.
 - Add deterministic tests for behavior changes.
+- Keep README, docs, examples, and `AGENTS.md` aligned when public behavior
+  changes.
 
 ## Pull Requests
 
@@ -20,26 +23,31 @@ Pull requests should include:
 
 - a concise description of the change
 - tests or a clear reason tests are not applicable
-- documentation updates when behavior, public API, security posture, or release
-  process changes
+- documentation updates when behavior, public API, security posture, examples,
+  or release process changes
 - confirmation that no real zenture API tokens or customer data were added
 
 ## Local Checks
 
-The full SDK toolchain will be added during repository foundation. Until then,
-the bootstrap CI validates required governance files and repository hygiene.
+Run the full local gate before handing off SDK changes:
 
-Expected final checks before SDK beta:
+```bash
+python3 -m ruff format --check .
+python3 -m ruff check .
+python3 -m mypy
+python3 -m pyright
+python3 -m pytest
+python3 -m coverage run -m pytest
+python3 -m coverage report
+python3 -m build
+python3 -m twine check dist/*
+```
 
-- Ruff format and lint
-- Mypy strict
-- Pyright
-- Pytest with coverage
-- mocked HTTP integration tests
-- example execution against fixtures
-- OpenAPI contract drift checks
+Tests must not hit the real zenture API. Use `httpx.MockTransport` or static
+checks for docs and examples.
 
 ## Release Process
 
 Public PyPI releases are blocked until the SDK reviewer gate passes. Publishing
-must use PyPI Trusted Publishing through OIDC, not long-lived package tokens.
+must use PyPI Trusted Publishing through GitHub Actions OIDC, not long-lived
+package tokens.

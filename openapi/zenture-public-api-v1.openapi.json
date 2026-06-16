@@ -185,6 +185,36 @@
       },
       "ChatRequest": {
         "additionalProperties": false,
+        "oneOf": [
+          {
+            "not": {
+              "required": [
+                "models"
+              ]
+            },
+            "properties": {
+              "mode": {
+                "const": "single"
+              }
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "model"
+              ]
+            },
+            "properties": {
+              "mode": {
+                "const": "multi"
+              }
+            },
+            "required": [
+              "mode",
+              "models"
+            ]
+          }
+        ],
         "properties": {
           "chat_id": {
             "maxLength": 140,
@@ -197,12 +227,12 @@
             "type": "string"
           },
           "mode": {
-            "default": "single",
-            "enum": [
-              "single",
-              "multi"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModelMode"
+              }
             ],
-            "type": "string"
+            "default": "single"
           },
           "model": {
             "maxLength": 140,
@@ -368,6 +398,13 @@
         "title": "LimitsResponse",
         "type": "object"
       },
+      "ModelMode": {
+        "enum": [
+          "single",
+          "multi"
+        ],
+        "type": "string"
+      },
       "OperationStatus": {
         "enum": [
           "queued",
@@ -410,6 +447,7 @@
             "type": "array"
           },
           "next_cursor": {
+            "description": "Opaque cursor for the next page. Null means there is no further page.",
             "nullable": true,
             "type": "string"
           }
@@ -427,6 +465,7 @@
             "type": "string"
           },
           "next_cursor": {
+            "description": "Opaque cursor for the next page. Null means there is no further page.",
             "nullable": true,
             "type": "string"
           },
@@ -573,6 +612,7 @@
             "type": "array"
           },
           "next_cursor": {
+            "description": "Opaque cursor for the next page. Null means there is no further page.",
             "nullable": true,
             "type": "string"
           }
@@ -652,11 +692,7 @@
           },
           "modes": {
             "items": {
-              "enum": [
-                "single",
-                "multi"
-              ],
-              "type": "string"
+              "$ref": "#/components/schemas/ModelMode"
             },
             "maxItems": 2,
             "minItems": 1,
@@ -695,11 +731,34 @@
         ],
         "type": "object"
       },
+      "PublicOperationError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "PublicOperationResponse": {
         "additionalProperties": false,
         "properties": {
           "error": {
-            "$ref": "#/components/schemas/PublicError"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicOperationError"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "operation_id": {
             "pattern": "^op_[A-Za-z0-9_-]{3,128}$",
@@ -1895,7 +1954,7 @@
         "operationId": "postV1Chat",
         "parameters": [
           {
-            "description": "Required idempotency key for safe mutation retries.",
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": true,
@@ -2071,7 +2130,31 @@
     "/v1/chats": {
       "get": {
         "operationId": "getV1Chats",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Maximum items to return. Results are ordered by created_at desc.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor returned by the previous page. Send it unchanged. Results are ordered by created_at desc.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2404,6 +2487,29 @@
               "pattern": "^chat_[A-Za-z0-9_-]{3,128}$",
               "type": "string"
             }
+          },
+          {
+            "description": "Maximum items to return. Results are ordered by created_at desc.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor returned by the previous page. Send it unchanged. Results are ordered by created_at desc.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2563,7 +2669,7 @@
         "operationId": "postV1Evaluate",
         "parameters": [
           {
-            "description": "Required idempotency key for safe mutation retries.",
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": true,
@@ -2750,7 +2856,31 @@
     "/v1/evaluations": {
       "get": {
         "operationId": "getV1Evaluations",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Maximum items to return. Results are ordered by created_at desc.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque cursor returned by the previous page. Send it unchanged. Results are ordered by created_at desc.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3224,7 +3354,7 @@
         "operationId": "postV1InputWizard",
         "parameters": [
           {
-            "description": "Required idempotency key for safe mutation retries.",
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
             "in": "header",
             "name": "Idempotency-Key",
             "required": true,
