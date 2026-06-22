@@ -35,7 +35,15 @@ def _generated_evaluation_idempotency_key() -> str:
 
 
 class EvaluationsResource:
-    """Synchronous wrapper for evaluation routes."""
+    """Synchronous wrapper for evaluation routes.
+
+    Evaluation always needs the pair that should be judged: ``user_message`` and
+    ``ai_answer``. If the answer came from zenture chat, also pass the owned
+    ``model_response_id`` from the chat result or chat messages response, plus
+    optional ``chat_id`` and ``turn_id``. If the answer came from another system,
+    omit zenture chat ids and optionally pass your own ``external_id`` and
+    bounded ``metadata`` for correlation.
+    """
 
     def __init__(self, transport: SyncTransport) -> None:
         self._transport = transport
@@ -47,14 +55,26 @@ class EvaluationsResource:
         ai_answer: str,
         idempotency_key: str,
         chat_id: str | None = None,
+        external_id: str | None = None,
+        metadata: dict[str, object] | None = None,
         model_response_id: str | None = None,
         turn_id: str | None = None,
     ) -> PublicOperationResponse:
-        """Create an asynchronous evaluation operation."""
+        """Create an asynchronous evaluation operation.
+
+        Use ``model_response_id`` for an existing zenture chat answer. Without a
+        ``model_response_id``, the request is treated as an external
+        evaluation-only record and is not added to zenture chat history.
+
+        ``idempotency_key`` is caller-owned and required for retry safety. Reuse
+        the same key only when retrying the same request body.
+        """
 
         body = EvaluateRequest(
             user_message=user_message,
             ai_answer=ai_answer,
+            external_id=external_id,
+            metadata=metadata or {},
             chat_id=chat_id,
             model_response_id=model_response_id,
             turn_id=turn_id,
@@ -63,7 +83,7 @@ class EvaluationsResource:
             "POST",
             "/evaluate",
             headers=idempotency_headers(idempotency_key),
-            json=body.model_dump(exclude_none=True),
+            json=body.model_dump(exclude_none=True, exclude_defaults=True),
         )
         return parse_response(PublicOperationResponse, payload)
 
@@ -74,6 +94,8 @@ class EvaluationsResource:
         ai_answer: str,
         idempotency_key: str | None = None,
         chat_id: str | None = None,
+        external_id: str | None = None,
+        metadata: dict[str, object] | None = None,
         model_response_id: str | None = None,
         turn_id: str | None = None,
         timeout: float = 120.0,
@@ -81,7 +103,21 @@ class EvaluationsResource:
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
     ) -> OperationRunResult:
-        """Create and poll an evaluation operation until terminal."""
+        """Create and poll an evaluation operation until terminal.
+
+        Internal chat answer:
+            pass ``user_message``, ``ai_answer``, ``chat_id``, ``turn_id``, and
+            the AI-answer ``model_response_id``.
+
+        External answer:
+            pass ``user_message`` and ``ai_answer`` only, with optional
+            ``external_id``/``metadata``. Do not pass zenture chat ids for
+            external content.
+
+        When ``idempotency_key`` is omitted this helper generates one and
+        returns it on the ``OperationRunResult``. For application retries,
+        prefer a stable key from your own system.
+        """
 
         key = idempotency_key or _generated_evaluation_idempotency_key()
         operation = self.create(
@@ -89,6 +125,8 @@ class EvaluationsResource:
             ai_answer=ai_answer,
             idempotency_key=key,
             chat_id=chat_id,
+            external_id=external_id,
+            metadata=metadata,
             model_response_id=model_response_id,
             turn_id=turn_id,
         )
@@ -150,7 +188,13 @@ class EvaluationsResource:
 
 
 class AsyncEvaluationsResource:
-    """Asynchronous wrapper for evaluation routes."""
+    """Asynchronous wrapper for evaluation routes.
+
+    Evaluation always needs the pair that should be judged: ``user_message`` and
+    ``ai_answer``. Pass ``model_response_id`` only for existing owned zenture
+    chat answers. Omit zenture chat ids for external answers and use optional
+    ``external_id``/``metadata`` for caller-side correlation.
+    """
 
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
@@ -162,14 +206,24 @@ class AsyncEvaluationsResource:
         ai_answer: str,
         idempotency_key: str,
         chat_id: str | None = None,
+        external_id: str | None = None,
+        metadata: dict[str, object] | None = None,
         model_response_id: str | None = None,
         turn_id: str | None = None,
     ) -> PublicOperationResponse:
-        """Create an asynchronous evaluation operation."""
+        """Create an asynchronous evaluation operation.
+
+        ``model_response_id`` selects the internal zenture chat-answer path.
+        Without it, the request creates an external evaluation-only record that
+        does not appear in normal chat history. ``idempotency_key`` is required
+        and must be stable across retries of the same body.
+        """
 
         body = EvaluateRequest(
             user_message=user_message,
             ai_answer=ai_answer,
+            external_id=external_id,
+            metadata=metadata or {},
             chat_id=chat_id,
             model_response_id=model_response_id,
             turn_id=turn_id,
@@ -178,7 +232,7 @@ class AsyncEvaluationsResource:
             "POST",
             "/evaluate",
             headers=idempotency_headers(idempotency_key),
-            json=body.model_dump(exclude_none=True),
+            json=body.model_dump(exclude_none=True, exclude_defaults=True),
         )
         return parse_response(PublicOperationResponse, payload)
 
@@ -189,6 +243,8 @@ class AsyncEvaluationsResource:
         ai_answer: str,
         idempotency_key: str | None = None,
         chat_id: str | None = None,
+        external_id: str | None = None,
+        metadata: dict[str, object] | None = None,
         model_response_id: str | None = None,
         turn_id: str | None = None,
         timeout: float = 120.0,
@@ -196,7 +252,13 @@ class AsyncEvaluationsResource:
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
     ) -> OperationRunResult:
-        """Create and poll an evaluation operation until terminal."""
+        """Create and poll an evaluation operation until terminal.
+
+        For zenture chat answers, pass ``chat_id``, ``turn_id``, and
+        ``model_response_id`` with the turn's ``user_message`` and
+        ``model_answer``. For external answers, omit zenture chat ids and pass
+        optional ``external_id``/``metadata`` only for correlation.
+        """
 
         key = idempotency_key or _generated_evaluation_idempotency_key()
         operation = await self.create(
@@ -204,6 +266,8 @@ class AsyncEvaluationsResource:
             ai_answer=ai_answer,
             idempotency_key=key,
             chat_id=chat_id,
+            external_id=external_id,
+            metadata=metadata,
             model_response_id=model_response_id,
             turn_id=turn_id,
         )

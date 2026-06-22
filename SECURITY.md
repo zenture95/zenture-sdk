@@ -45,6 +45,18 @@ The SDK must not log or expose:
 
 Examples and tests must use fake credentials only.
 
+## Token Environment Binding
+
+zenture API tokens are environment-bound. Live API tokens (`zt_live_...`) are
+valid only against the production zenture API. Test API tokens (`zt_test_...`)
+are valid only against approved non-production API environments or local
+debugging origins.
+
+The SDK performs client-side validation to prevent accidental cross-environment
+token use. The API must enforce the same rule server-side. Public SDK
+documentation must not publish non-production API hostnames, deployment names,
+local port conventions, or token validation internals.
+
 ## Release Security
 
 Public package publishing must use PyPI Trusted Publishing through GitHub

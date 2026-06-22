@@ -34,6 +34,8 @@ CHAT_TURN = {
     "created_at": "2026-06-15T10:01:00Z",
     "user_message": "Hello",
     "model_answer": "Hi",
+    "model_response_id": "response_abc123",
+    "model_response_ids": ["response_abc123"],
 }
 EVALUATION = {
     "evaluation_id": "eval_abc123",
@@ -92,7 +94,7 @@ def test_sync_operation_get_validates_contract_model() -> None:
         return httpx.Response(200, json=OPERATION_PAYLOAD)
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -102,7 +104,7 @@ def test_sync_operation_get_validates_contract_model() -> None:
     assert operation.status is OperationStatus.QUEUED
     assert seen[0].method == "GET"
     assert str(seen[0].url) == "https://api.zenture.app/v1/operations/op_abc123"
-    assert seen[0].headers["authorization"] == "Bearer zt_test_client_123"
+    assert seen[0].headers["authorization"] == "Bearer zt_live_client_123"
 
     client.close()
 
@@ -122,7 +124,7 @@ def test_sync_operation_get_returns_failed_operation_with_domain_error_code() ->
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -148,7 +150,13 @@ def test_sync_operations_wait_returns_succeeded_terminal_operation(
         status = next(statuses)
         result = None
         if status == "succeeded":
-            result = {"result_type": "chat", "chat_id": "chat_abc123", "status": "succeeded"}
+            result = {
+                "result_type": "chat",
+                "chat_id": "chat_abc123",
+                "model_response_id": "response_abc123",
+                "model_response_ids": ["response_abc123"],
+                "status": "succeeded",
+            }
         return httpx.Response(
             200,
             json={"operation_id": "op_abc123", "status": status, "result": result},
@@ -159,7 +167,7 @@ def test_sync_operations_wait_returns_succeeded_terminal_operation(
 
     monkeypatch.setattr(operations_resource, "sleep_for_polling", record_sleep)
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -173,6 +181,7 @@ def test_sync_operations_wait_returns_succeeded_terminal_operation(
     assert operation.status is OperationStatus.SUCCEEDED
     assert operation.result is not None
     assert operation.result.chat_id == "chat_abc123"
+    assert operation.result.model_response_ids == ("response_abc123",)
     assert seen_paths == [
         "/v1/operations/op_abc123",
         "/v1/operations/op_abc123",
@@ -202,7 +211,7 @@ def test_sync_operations_wait_returns_failed_operation_with_error(
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -229,7 +238,7 @@ def test_sync_operations_wait_returns_cancelled_and_expired_terminal_operations(
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -250,7 +259,7 @@ def test_sync_operations_wait_raises_redacted_timeout(
         return httpx.Response(200, json={"operation_id": "op_abc123", "status": "running"})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -287,7 +296,7 @@ def test_sync_operations_wait_does_not_poll_after_timeout_budget(
     monkeypatch.setattr("zenture._resources.operations.time.monotonic", fake_monotonic)
     monkeypatch.setattr(operations_resource, "sleep_for_polling", fake_sleep)
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -311,7 +320,7 @@ def test_sync_operations_wait_raises_redacted_local_stop(
         return httpx.Response(200, json={"operation_id": "op_abc123", "status": "queued"})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -337,7 +346,7 @@ def test_sync_resource_response_validation_does_not_chain_raw_payload() -> None:
         return httpx.Response(200, json={"unexpected": token})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -389,7 +398,7 @@ def test_sync_mutating_resources_send_idempotency_and_validate_operation(
         return httpx.Response(202, json=OPERATION_PAYLOAD)
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -398,9 +407,48 @@ def test_sync_mutating_resources_send_idempotency_and_validate_operation(
     assert operation.operation_id == "op_abc123"
     assert seen[0].method == "POST"
     assert seen[0].url.path == path
-    assert seen[0].headers["authorization"] == "Bearer zt_test_client_123"
+    assert seen[0].headers["authorization"] == "Bearer zt_live_client_123"
     assert seen[0].headers["idempotency-key"]
     assert seen[0].read() == httpx.Request("POST", "https://api.zenture.app", json=payload).read()
+
+    client.close()
+
+
+def test_sync_evaluation_create_sends_external_correlation_fields() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(202, json=OPERATION_PAYLOAD)
+
+    client = Zenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    operation = client.evaluations.create(
+        user_message="Question",
+        ai_answer="Answer",
+        idempotency_key="evaluation-create-external-1",
+        external_id="customer-eval-123",
+        metadata={"customer_id": "safe-correlation"},
+    )
+
+    assert operation.operation_id == "op_abc123"
+    assert seen[0].url.path == "/v1/evaluate"
+    assert (
+        seen[0].read()
+        == httpx.Request(
+            "POST",
+            "https://api.zenture.app",
+            json={
+                "user_message": "Question",
+                "ai_answer": "Answer",
+                "external_id": "customer-eval-123",
+                "metadata": {"customer_id": "safe-correlation"},
+            },
+        ).read()
+    )
 
     client.close()
 
@@ -419,7 +467,7 @@ def test_sync_chat_read_resources_validate_contract_models() -> None:
         return httpx.Response(404, json={"error": {"code": "not_found", "message": "not found"}})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -431,6 +479,8 @@ def test_sync_chat_read_resources_validate_contract_models() -> None:
     assert chats.next_cursor == "cursor_2"
     assert chat.latest_turns[0].turn_id == "turn_abc123"
     assert messages.turns[0].model_answer == "Hi"
+    assert messages.turns[0].model_response_id == "response_abc123"
+    assert messages.turns[0].model_response_ids == ("response_abc123",)
 
     client.close()
 
@@ -448,7 +498,7 @@ def test_sync_chat_read_resources_send_pagination_params() -> None:
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -477,7 +527,7 @@ def test_sync_chat_read_resources_validate_pagination_inputs(
     cursor: str | None,
     match: str,
 ) -> None:
-    client = Zenture(api_key="zt_test_client_123")
+    client = Zenture(api_key="zt_live_client_123")
 
     with pytest.raises(ValueError, match=match):
         client.chat.list(limit=limit, cursor=cursor)
@@ -520,7 +570,7 @@ def test_sync_chat_iterators_walk_until_next_cursor_is_none() -> None:
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -560,7 +610,7 @@ def test_sync_iterators_continue_across_empty_pages_with_next_cursor() -> None:
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -587,7 +637,7 @@ def test_sync_models_resource_lists_models_with_optional_mode_filter() -> None:
         return httpx.Response(200, json={"models": [PUBLIC_MODEL]})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -612,7 +662,7 @@ def test_sync_chat_create_operation_validates_single_and_multi_model_modes() -> 
         return httpx.Response(202, json=OPERATION_PAYLOAD)
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -669,7 +719,7 @@ def test_sync_chat_create_operation_validates_single_and_multi_model_modes() -> 
 def test_sync_chat_create_operation_rejects_invalid_model_mode_combinations(
     kwargs: dict[str, Any],
 ) -> None:
-    client = Zenture(api_key="zt_test_client_123")
+    client = Zenture(api_key="zt_live_client_123")
 
     with pytest.raises(ValueError, match=r"single|multi|models|Input should|agentic"):
         client.chat.create_operation(
@@ -696,13 +746,13 @@ def test_sync_chat_run_polls_operation_and_returns_idempotency_metadata() -> Non
                 "result": {
                     "result_type": "chat",
                     "chat_id": "chat_abc123",
-                    "status": "succeeded",
+                    "status": "completed",
                 },
             },
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -726,6 +776,52 @@ def test_sync_chat_run_polls_operation_and_returns_idempotency_metadata() -> Non
     client.close()
 
 
+def test_sync_chat_run_accepts_nested_live_chat_operation_result() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/chat":
+            return httpx.Response(202, json=OPERATION_PAYLOAD)
+        return httpx.Response(
+            200,
+            json={
+                "operation_id": "op_abc123",
+                "status": "succeeded",
+                "result": {
+                    "chat": {
+                        "result_type": "chat",
+                        "chat_id": "chat_abc123",
+                        "turn_id": "turn_abc123",
+                        "model_response_id": "response_abc123",
+                        "model_response_ids": ["response_abc123"],
+                        "status": "completed",
+                    }
+                },
+            },
+        )
+
+    client = Zenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = client.chat.run(
+        message="Hello",
+        mode="single",
+        idempotency_key="chat-run-nested-1",
+        poll_interval=0.01,
+        timeout=1.0,
+    )
+
+    assert result.status is OperationStatus.SUCCEEDED
+    assert result.result is not None
+    assert result.result.result_type == "chat"
+    assert result.result.chat_id == "chat_abc123"
+    assert result.result.turn_id == "turn_abc123"
+    assert result.result.model_response_id == "response_abc123"
+    assert result.result.model_response_ids == ("response_abc123",)
+
+    client.close()
+
+
 def test_sync_input_wizard_run_creates_and_waits_with_generated_idempotency_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -741,12 +837,19 @@ def test_sync_input_wizard_run_creates_and_waits_with_generated_idempotency_key(
             json={
                 "operation_id": "op_abc123",
                 "status": "succeeded",
-                "result": {"result_type": "input_wizard", "resource_id": "wizard_abc123"},
+                "result": {
+                    "result_type": "input_wizard",
+                    "resource_id": "wizard_abc123",
+                    "input_wizard_id": "wizard_abc123",
+                    "optimized_prompt": "Improved prompt text",
+                    "status": "completed",
+                    "wizard_session_id": "session_abc123",
+                },
             },
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -759,9 +862,53 @@ def test_sync_input_wizard_run_creates_and_waits_with_generated_idempotency_key(
     assert result.status is OperationStatus.SUCCEEDED
     assert result.result is not None
     assert result.result.result_type == "input_wizard"
+    assert result.result.input_wizard_id == "wizard_abc123"
+    assert result.result.optimized_prompt == "Improved prompt text"
+    assert result.result.wizard_session_id == "session_abc123"
     assert result.idempotency_key
     assert result.idempotency_key == seen_headers[0]
     assert result.last_request_id is None
+
+    client.close()
+
+
+def test_sync_input_wizard_run_returns_terminal_create_response_without_polling() -> None:
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "operation_id": "op_abc123",
+                "status": "succeeded",
+                "result": {
+                    "result_type": "input_wizard",
+                    "resource_id": "wizard_abc123",
+                    "input_wizard_id": "wizard_abc123",
+                    "optimized_prompt": "Direct optimized prompt",
+                    "status": "succeeded",
+                    "wizard_session_id": "session_abc123",
+                },
+            },
+        )
+
+    client = Zenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = client.input_wizard.run(
+        prompt="Improve this prompt",
+        idempotency_key="wizard-terminal-create-1",
+        timeout=1.0,
+        initial_interval=0.01,
+    )
+
+    assert result.status is OperationStatus.SUCCEEDED
+    assert result.result is not None
+    assert result.result.optimized_prompt == "Direct optimized prompt"
+    assert seen_paths == ["/v1/input-wizard"]
 
     client.close()
 
@@ -786,7 +933,7 @@ def test_sync_evaluations_run_creates_and_waits_with_explicit_idempotency_key(
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -824,7 +971,7 @@ def test_sync_chat_run_returns_terminal_operation_error_details() -> None:
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -856,7 +1003,7 @@ def test_sync_chat_run_timeout_exposes_recovery_metadata(
         return httpx.Response(200, json={"operation_id": "op_abc123", "status": "running"})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -882,7 +1029,7 @@ def test_sync_input_wizard_run_stop_exposes_recovery_metadata() -> None:
         return httpx.Response(200, json={"operation_id": "op_abc123", "status": "running"})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -918,7 +1065,7 @@ def test_sync_evaluations_run_timeout_exposes_recovery_metadata(
         return httpx.Response(200, json={"operation_id": "op_eval123", "status": "running"})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -973,7 +1120,7 @@ def test_sync_evaluation_and_account_read_resources_validate_contract_models() -
         return httpx.Response(404, json={"error": {"code": "not_found", "message": "not found"}})
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -1013,7 +1160,7 @@ def test_sync_evaluations_list_sends_pagination_params_and_iterates() -> None:
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -1048,7 +1195,7 @@ def test_sync_evaluations_list_validates_pagination_inputs(
     cursor: str | None,
     match: str,
 ) -> None:
-    client = Zenture(api_key="zt_test_client_123")
+    client = Zenture(api_key="zt_live_client_123")
 
     with pytest.raises(ValueError, match=match):
         client.evaluations.list(limit=limit, cursor=cursor)
@@ -1080,7 +1227,7 @@ async def test_async_resources_match_sync_surface() -> None:
         return httpx.Response(200, json={"scope": "api", "operation_count": 1})
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1165,7 +1312,7 @@ async def test_async_paginated_resources_send_params_and_iterate() -> None:
         )
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1213,7 +1360,7 @@ async def test_async_iterators_continue_across_empty_pages_with_next_cursor() ->
         )
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1253,7 +1400,7 @@ async def test_async_operations_wait_returns_succeeded_terminal_operation(
         )
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     monkeypatch.setattr(operations_resource, "async_sleep_for_polling", fake_sleep)
@@ -1288,7 +1435,7 @@ async def test_async_operations_wait_returns_failed_operation_with_error() -> No
         )
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1312,7 +1459,7 @@ async def test_async_operations_wait_raises_timeout(
         return None
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     monkeypatch.setattr(operations_resource, "async_sleep_for_polling", fake_sleep)
@@ -1343,7 +1490,7 @@ async def test_async_operations_wait_does_not_poll_after_timeout_budget(
     monkeypatch.setattr("zenture._resources.operations.time.monotonic", fake_monotonic)
     monkeypatch.setattr(operations_resource, "async_sleep_for_polling", fake_sleep)
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1361,7 +1508,7 @@ async def test_async_operations_wait_propagates_task_cancellation() -> None:
         return httpx.Response(200, json={"operation_id": "op_abc123", "status": "running"})
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1391,7 +1538,7 @@ async def test_async_operations_wait_immediate_stop_does_not_send_request() -> N
         return httpx.Response(200, json={"operation_id": "op_abc123", "status": "running"})
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1415,7 +1562,7 @@ async def test_async_chat_run_stop_exposes_recovery_metadata() -> None:
         return httpx.Response(200, json={"operation_id": "op_abc123", "status": "running"})
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1457,7 +1604,14 @@ async def test_async_input_wizard_and_evaluations_run_create_and_wait() -> None:
                 json={
                     "operation_id": "op_abc123",
                     "status": "succeeded",
-                    "result": {"result_type": "input_wizard", "resource_id": "wizard_abc123"},
+                    "result": {
+                        "result_type": "input_wizard",
+                        "resource_id": "wizard_abc123",
+                        "input_wizard_id": "wizard_abc123",
+                        "optimized_prompt": "Improved async prompt text",
+                        "status": "completed",
+                        "wizard_session_id": "session_async123",
+                    },
                 },
             )
         return httpx.Response(
@@ -1470,7 +1624,7 @@ async def test_async_input_wizard_and_evaluations_run_create_and_wait() -> None:
         )
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1489,6 +1643,10 @@ async def test_async_input_wizard_and_evaluations_run_create_and_wait() -> None:
     )
 
     assert wizard.status is OperationStatus.SUCCEEDED
+    assert wizard.result is not None
+    assert wizard.result.input_wizard_id == "wizard_abc123"
+    assert wizard.result.optimized_prompt == "Improved async prompt text"
+    assert wizard.result.wizard_session_id == "session_async123"
     assert wizard.idempotency_key == "wizard-run-1"
     assert evaluation.status is OperationStatus.SUCCEEDED
     assert evaluation.result is not None
@@ -1497,6 +1655,48 @@ async def test_async_input_wizard_and_evaluations_run_create_and_wait() -> None:
         ("input_wizard", "wizard-run-1"),
         ("evaluation", "evaluation-run-async-1"),
     ]
+
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_input_wizard_run_returns_terminal_create_response_without_polling() -> None:
+    seen_paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "operation_id": "op_abc123",
+                "status": "succeeded",
+                "result": {
+                    "result_type": "input_wizard",
+                    "resource_id": "wizard_abc123",
+                    "input_wizard_id": "wizard_abc123",
+                    "optimized_prompt": "Direct async optimized prompt",
+                    "status": "completed",
+                    "wizard_session_id": "session_async123",
+                },
+            },
+        )
+
+    client = AsyncZenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await client.input_wizard.run(
+        prompt="Improve this prompt",
+        idempotency_key="wizard-terminal-create-async-1",
+        timeout=1.0,
+        initial_interval=0.01,
+    )
+
+    assert result.status is OperationStatus.SUCCEEDED
+    assert result.result is not None
+    assert result.result.optimized_prompt == "Direct async optimized prompt"
+    assert seen_paths == ["/v1/input-wizard"]
 
     await client.aclose()
 
@@ -1519,7 +1719,7 @@ async def test_async_chat_run_returns_terminal_operation_error_details() -> None
         )
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -1539,7 +1739,7 @@ async def test_async_chat_run_returns_terminal_operation_error_details() -> None
 
 
 def test_api_token_management_surface_is_not_exposed() -> None:
-    client = Zenture(api_key="zt_test_client_123")
+    client = Zenture(api_key="zt_live_client_123")
 
     assert not hasattr(client, "api_tokens")
     assert not hasattr(client, "tokens")

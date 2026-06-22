@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 
 
 def test_sync_transport_public_surface_does_not_expose_authorization_header() -> None:
-    config = ZentureConfig(api_key="zt_test_transport_123")
+    config = ZentureConfig(api_key="zt_live_transport_123")
     transport = SyncTransport(config=config, user_agent="zenture-test/0")
 
     assert not hasattr(transport, "default_headers")
-    assert "zt_test_transport_123" not in repr(transport)
+    assert "zt_live_transport_123" not in repr(transport)
     assert "Authorization" not in repr(transport)
     assert not transport.is_closed
 
@@ -35,7 +35,7 @@ def test_sync_transport_public_surface_does_not_expose_authorization_header() ->
 
 
 def test_sync_transport_builds_authorization_only_for_internal_requests() -> None:
-    config = ZentureConfig(api_key="zt_test_transport_123")
+    config = ZentureConfig(api_key="zt_live_transport_123")
     transport = SyncTransport(config=config, user_agent="zenture-test/0")
     build_headers = cast(
         "Callable[[], dict[str, str]]",
@@ -43,7 +43,7 @@ def test_sync_transport_builds_authorization_only_for_internal_requests() -> Non
     )
 
     assert build_headers() == {
-        "Authorization": "Bearer zt_test_transport_123",
+        "Authorization": "Bearer zt_live_transport_123",
         "User-Agent": "zenture-test/0",
     }
 
@@ -58,7 +58,7 @@ def test_sync_transport_request_text_can_skip_authorization() -> None:
         return httpx.Response(200, text="hello")
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -74,7 +74,7 @@ def test_sync_transport_request_json_sends_headers_and_auth() -> None:
         return httpx.Response(200, json={"ok": True})
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -86,13 +86,13 @@ def test_sync_transport_request_json_sends_headers_and_auth() -> None:
     )
 
     assert payload == {"ok": True}
-    assert seen_headers["authorization"] == "Bearer zt_test_transport_123"
+    assert seen_headers["authorization"] == "Bearer zt_live_transport_123"
     assert seen_headers["idempotency-key"] == "operation-123"
 
 
 def test_sync_transport_owned_client_uses_explicit_timeout_policy() -> None:
     config = ZentureConfig(
-        api_key="zt_test_transport_123",
+        api_key="zt_live_transport_123",
         connect_timeout=1.0,
         read_timeout=2.0,
         write_timeout=3.0,
@@ -127,7 +127,7 @@ def test_sync_transport_retries_retryable_idempotent_mutation() -> None:
 
     transport = SyncTransport(
         config=ZentureConfig(
-            api_key="zt_test_transport_123",
+            api_key="zt_live_transport_123",
             initial_retry_backoff=0.0,
             max_retry_backoff=0.0,
         ),
@@ -157,7 +157,7 @@ def test_sync_transport_does_not_retry_mutation_without_idempotency_key() -> Non
         )
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -185,7 +185,7 @@ def test_sync_transport_honors_retry_after_header_without_sleeping_when_zero() -
         return httpx.Response(200, json={"ok": True})
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -200,7 +200,7 @@ def test_sync_transport_request_json_rejects_invalid_success_json() -> None:
         return httpx.Response(200, text=f"not-json {token}")
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -223,7 +223,7 @@ def test_sync_transport_maps_error_response() -> None:
         )
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -238,7 +238,7 @@ def test_sync_transport_rejects_invalid_error_json() -> None:
         return httpx.Response(500, text=f"not-json {token}")
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -255,7 +255,7 @@ def test_sync_transport_rejects_non_object_error_json() -> None:
         return httpx.Response(500, json=["not", "an", "object"])
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -270,7 +270,7 @@ def test_sync_transport_redacts_httpx_errors() -> None:
         raise httpx.ConnectError(f"failed with token {token}")
 
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -284,7 +284,7 @@ def test_sync_transport_redacts_httpx_errors() -> None:
 
 
 def test_sync_transport_context_manager_closes_owned_client() -> None:
-    with SyncTransport(config=ZentureConfig(api_key="zt_test_transport_123")) as transport:
+    with SyncTransport(config=ZentureConfig(api_key="zt_live_transport_123")) as transport:
         assert not transport.is_closed
 
     assert transport.is_closed
@@ -293,7 +293,7 @@ def test_sync_transport_context_manager_closes_owned_client() -> None:
 def test_sync_transport_does_not_close_external_client() -> None:
     client = httpx.Client()
     transport = SyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=client,
     )
 
@@ -306,7 +306,7 @@ def test_sync_transport_does_not_close_external_client() -> None:
 @pytest.mark.asyncio
 async def test_async_transport_builds_authorization_only_for_internal_requests() -> None:
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         user_agent="zenture-test/0",
     )
     build_headers = cast(
@@ -315,7 +315,7 @@ async def test_async_transport_builds_authorization_only_for_internal_requests()
     )
 
     assert build_headers() == {
-        "Authorization": "Bearer zt_test_transport_123",
+        "Authorization": "Bearer zt_live_transport_123",
         "User-Agent": "zenture-test/0",
     }
 
@@ -331,7 +331,7 @@ async def test_async_transport_request_text_can_skip_authorization() -> None:
         return httpx.Response(200, text="hello")
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -348,7 +348,7 @@ async def test_async_transport_request_json_sends_headers_and_auth() -> None:
         return httpx.Response(200, json={"ok": True})
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -360,14 +360,14 @@ async def test_async_transport_request_json_sends_headers_and_auth() -> None:
     )
 
     assert payload == {"ok": True}
-    assert seen_headers["authorization"] == "Bearer zt_test_transport_123"
+    assert seen_headers["authorization"] == "Bearer zt_live_transport_123"
     assert seen_headers["idempotency-key"] == "operation-123"
 
 
 @pytest.mark.asyncio
 async def test_async_transport_owned_client_uses_explicit_timeout_policy() -> None:
     config = ZentureConfig(
-        api_key="zt_test_transport_123",
+        api_key="zt_live_transport_123",
         connect_timeout=1.0,
         read_timeout=2.0,
         write_timeout=3.0,
@@ -403,7 +403,7 @@ async def test_async_transport_retries_retryable_idempotent_mutation() -> None:
 
     transport = AsyncTransport(
         config=ZentureConfig(
-            api_key="zt_test_transport_123",
+            api_key="zt_live_transport_123",
             initial_retry_backoff=0.0,
             max_retry_backoff=0.0,
         ),
@@ -434,7 +434,7 @@ async def test_async_transport_does_not_retry_mutation_without_idempotency_key()
         )
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -452,7 +452,7 @@ async def test_async_transport_request_json_rejects_invalid_success_json() -> No
         return httpx.Response(200, text=f"not-json {token}")
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -476,7 +476,7 @@ async def test_async_transport_maps_error_response() -> None:
         )
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -492,7 +492,7 @@ async def test_async_transport_rejects_invalid_error_json() -> None:
         return httpx.Response(500, text=f"not-json {token}")
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -510,7 +510,7 @@ async def test_async_transport_rejects_non_object_error_json() -> None:
         return httpx.Response(500, json=["not", "an", "object"])
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -526,7 +526,7 @@ async def test_async_transport_redacts_httpx_errors() -> None:
         raise httpx.ConnectError(f"failed with token {token}")
 
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -541,7 +541,7 @@ async def test_async_transport_redacts_httpx_errors() -> None:
 
 @pytest.mark.asyncio
 async def test_async_transport_context_manager_closes_owned_client() -> None:
-    async with AsyncTransport(config=ZentureConfig(api_key="zt_test_transport_123")) as transport:
+    async with AsyncTransport(config=ZentureConfig(api_key="zt_live_transport_123")) as transport:
         assert not transport.is_closed
 
     assert transport.is_closed
@@ -551,7 +551,7 @@ async def test_async_transport_context_manager_closes_owned_client() -> None:
 async def test_async_transport_does_not_close_external_client() -> None:
     client = httpx.AsyncClient()
     transport = AsyncTransport(
-        config=ZentureConfig(api_key="zt_test_transport_123"),
+        config=ZentureConfig(api_key="zt_live_transport_123"),
         client=client,
     )
 

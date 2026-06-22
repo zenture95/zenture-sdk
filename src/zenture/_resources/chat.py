@@ -69,7 +69,14 @@ def _initial_interval(
 
 
 class ChatResource:
-    """Synchronous wrapper for chat routes."""
+    """Synchronous wrapper for chat routes.
+
+    Start a new chat by omitting ``chat_id``. Continue an existing chat by
+    passing the returned ``chat_id``. A completed chat operation exposes safe ids
+    on ``OperationRunResult.result`` including ``chat_id``, ``turn_id``, and
+    ``model_response_id``/``model_response_ids``. Use those response ids when
+    evaluating a zenture chat answer with ``client.evaluations``.
+    """
 
     def __init__(self, transport: SyncTransport) -> None:
         self._transport = transport
@@ -84,7 +91,12 @@ class ChatResource:
         model: str | None = None,
         models: list[str] | tuple[str, ...] | None = None,
     ) -> PublicOperationResponse:
-        """Create an asynchronous chat operation."""
+        """Create an asynchronous chat operation.
+
+        ``idempotency_key`` is caller-owned and required. Reuse it only for a
+        retry of the same request body. Pass ``chat_id`` to append a follow-up
+        turn to an existing chat.
+        """
 
         return self.create_operation(
             message=message,
@@ -105,7 +117,12 @@ class ChatResource:
         model: str | None = None,
         models: list[str] | tuple[str, ...] | None = None,
     ) -> PublicOperationResponse:
-        """Create an asynchronous chat operation."""
+        """Create an asynchronous chat operation.
+
+        The operation result will later contain safe chat references when
+        polling succeeds. For single-model chats, use the returned
+        ``model_response_id`` as the AI-answer id for internal evaluation.
+        """
 
         body = _chat_request(
             message=message,
@@ -137,7 +154,13 @@ class ChatResource:
         stop: Callable[[], bool] | None = None,
         poll_interval: float | None = None,
     ) -> OperationRunResult:
-        """Create and poll a chat operation until it reaches a terminal status."""
+        """Create and poll a chat operation until it reaches a terminal status.
+
+        The returned ``result`` contains the ``chat_id`` for follow-up turns and
+        the ``turn_id`` plus ``model_response_id``/``model_response_ids`` for
+        evaluating the generated answer. For application retries, prefer a
+        stable ``idempotency_key`` from your own system.
+        """
 
         key = idempotency_key or _generated_chat_idempotency_key()
         operation = self.create_operation(
@@ -211,7 +234,12 @@ class ChatResource:
         limit: int = 50,
         cursor: str | None = None,
     ) -> PublicChatMessagesResponse:
-        """Fetch public chat turns."""
+        """Fetch public chat turns.
+
+        Each turn includes ``user_message``, ``model_answer``, and the safe
+        ``model_response_id``/``model_response_ids`` needed to evaluate an
+        existing zenture chat answer.
+        """
 
         payload = self._transport.request_json(
             "GET",
@@ -239,7 +267,13 @@ class ChatResource:
 
 
 class AsyncChatResource:
-    """Asynchronous wrapper for chat routes."""
+    """Asynchronous wrapper for chat routes.
+
+    Start a new chat by omitting ``chat_id`` and continue a chat by passing the
+    returned ``chat_id``. Completed chat operations and chat message reads expose
+    ``model_response_id``/``model_response_ids`` for evaluating zenture chat
+    answers.
+    """
 
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
@@ -254,7 +288,11 @@ class AsyncChatResource:
         model: str | None = None,
         models: list[str] | tuple[str, ...] | None = None,
     ) -> PublicOperationResponse:
-        """Create an asynchronous chat operation."""
+        """Create an asynchronous chat operation.
+
+        ``idempotency_key`` is caller-owned and required. Pass ``chat_id`` to
+        append a follow-up turn to an existing chat.
+        """
 
         return await self.create_operation(
             message=message,
@@ -275,7 +313,12 @@ class AsyncChatResource:
         model: str | None = None,
         models: list[str] | tuple[str, ...] | None = None,
     ) -> PublicOperationResponse:
-        """Create an asynchronous chat operation."""
+        """Create an asynchronous chat operation.
+
+        Poll this operation to receive safe chat references. For single-model
+        chats, the terminal result includes the AI-answer ``model_response_id``
+        used by internal evaluation.
+        """
 
         body = _chat_request(
             message=message,
@@ -307,7 +350,12 @@ class AsyncChatResource:
         stop: Callable[[], bool] | None = None,
         poll_interval: float | None = None,
     ) -> OperationRunResult:
-        """Create and poll a chat operation until it reaches a terminal status."""
+        """Create and poll a chat operation until it reaches a terminal status.
+
+        The returned ``result`` contains ``chat_id`` for follow-up turns and
+        ``turn_id`` plus ``model_response_id``/``model_response_ids`` for
+        evaluating the generated answer.
+        """
 
         key = idempotency_key or _generated_chat_idempotency_key()
         operation = await self.create_operation(
@@ -382,7 +430,12 @@ class AsyncChatResource:
         limit: int = 50,
         cursor: str | None = None,
     ) -> PublicChatMessagesResponse:
-        """Fetch public chat turns."""
+        """Fetch public chat turns.
+
+        Each turn includes ``user_message``, ``model_answer``, and the safe
+        ``model_response_id``/``model_response_ids`` needed to evaluate an
+        existing zenture chat answer.
+        """
 
         payload = await self._transport.request_json(
             "GET",

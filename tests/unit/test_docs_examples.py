@@ -25,8 +25,10 @@ DOC_FILES = [
     ROOT / "docs" / "errors.md",
     ROOT / "docs" / "rate-limits.md",
     ROOT / "docs" / "pagination.md",
+    ROOT / "docs" / "account-reads.md",
     ROOT / "docs" / "security.md",
     ROOT / "docs" / "api-reference.md",
+    ROOT / "docs" / "sdk-call-reference.md",
     ROOT / "docs" / "release.md",
 ]
 EXAMPLE_FILES = [
@@ -41,10 +43,12 @@ EXAMPLE_FILES = [
     ROOT / "examples" / "idempotency.py",
     ROOT / "examples" / "error_handling.py",
     ROOT / "examples" / "async_chat.py",
+    ROOT / "examples" / "async_evaluate.py",
+    ROOT / "examples" / "account_status.py",
 ]
 PUBLIC_TEXT_FILES = [ROOT / "README.md", ROOT / "AGENTS.md", *DOC_FILES, *EXAMPLE_FILES]
 FORBIDDEN_PATTERNS = [
-    re.compile("zt_" + "live_"),
+    re.compile("zt_" + "live_" + r"[A-Za-z0-9_]{20,}"),
     re.compile("zt_" + "test_" + r"[A-Za-z0-9_]{20,}"),
     re.compile(r"api_key\s*=\s*['\"]"),
     re.compile(r"base_url\s*=\s*input\s*\("),
@@ -133,6 +137,41 @@ def _example_response(request: httpx.Request) -> httpx.Response:
                 "next_cursor": None,
             },
         )
+    if request.method == "GET" and path == "/v1/billing":
+        return httpx.Response(
+            200,
+            json={"plan": "free", "status": "active", "current_period_end": None},
+        )
+    if request.method == "GET" and path == "/v1/usage":
+        return httpx.Response(
+            200,
+            json={"scope": request.url.params.get("scope", "api"), "operation_count": 3},
+        )
+    if request.method == "GET" and path == "/v1/limits":
+        return httpx.Response(
+            200,
+            json={
+                "routes": {
+                    "POST /v1/evaluate": {
+                        "auth_mode": "api_token",
+                        "scopes": ["evaluation:run"],
+                        "cost_class": "evaluation_write",
+                        "idempotency_required": True,
+                        "cors_policy": "server_only",
+                        "max_body_bytes": 100000,
+                        "rate_limit_per_minute": 30,
+                    }
+                },
+                "operation_statuses": [
+                    "queued",
+                    "running",
+                    "succeeded",
+                    "failed",
+                    "cancelled",
+                    "expired",
+                ],
+            },
+        )
     if request.method == "POST" and path in {
         "/v1/chat",
         "/v1/input-wizard",
@@ -154,6 +193,7 @@ def test_readme_is_beta_ready_and_public_safe() -> None:
         "ZENTURE_BASE_URL",
         "https://ai.zenture.app/profile?tab=api-tokens",
         "https://www.zenture.app/api-documentation",
+        "docs/sdk-call-reference.md",
         "Zenture.from_env()",
         "AsyncZenture.from_env()",
         "helloworld",
@@ -163,7 +203,12 @@ def test_readme_is_beta_ready_and_public_safe() -> None:
         'mode="multi"',
         "input_wizard.run",
         "evaluations.run",
+        "external_id",
+        "model_response_id",
         "operations.wait",
+        "billing.get",
+        'usage.get(scope="api")',
+        "limits.get",
         "chat.iter",
         "limit=50",
         "cursor",
@@ -172,7 +217,9 @@ def test_readme_is_beta_ready_and_public_safe() -> None:
         "ZentureAPIError",
         "Retry-After",
         "https://api.zenture.app",
-        "https://api-int.zenture.app",
+        "zt_live_...",
+        "zt_test_...",
+        "non-production API hostnames",
         "API-token management surface",
         "python3 -m pytest",
         "SECURITY.md",
@@ -213,12 +260,20 @@ def test_docs_and_agents_exist_with_required_public_onboarding_content() -> None
     assert "webapp" in combined_docs.lower()
     assert "API-token management surface" in combined_docs
     assert "ZENTURE_BASE_URL" in combined_docs
+    assert "api-" + "int" not in combined_docs
+    assert "api-example" not in combined_docs
+    assert "non-production API hostnames" in combined_docs
     assert "https://ai.zenture.app/profile?tab=api-tokens" in combined_docs
     assert "https://www.zenture.app/api-documentation" in combined_docs
 
 
 def test_api_reference_covers_current_public_resource_surface() -> None:
-    text = _read(ROOT / "docs" / "api-reference.md")
+    text = "\n".join(
+        [
+            _read(ROOT / "docs" / "api-reference.md"),
+            _read(ROOT / "docs" / "sdk-call-reference.md"),
+        ]
+    )
     required = [
         "client.helloworld()",
         "client.models.list",
@@ -279,6 +334,7 @@ def test_examples_exist_compile_and_use_env_clients() -> None:
         "idempotency.py",
         "error_handling.py",
         "pagination.py",
+        "account_status.py",
     ],
 )
 def test_sync_examples_execute_with_mock_transport(
@@ -295,7 +351,8 @@ def test_sync_examples_execute_with_mock_transport(
             **kwargs,
         )
 
-    monkeypatch.setenv("ZENTURE_API_KEY", "zt_fake_docs_examples")
+    monkeypatch.setenv("ZENTURE_API_KEY", "zt_test_docs_examples")
+    monkeypatch.setenv("ZENTURE_BASE_URL", "http://localhost")
     monkeypatch.setattr(httpx, "Client", client_factory)
 
     module = _load_example(ROOT / "examples" / example_name)
@@ -304,10 +361,12 @@ def test_sync_examples_execute_with_mock_transport(
     assert capsys.readouterr().out
 
 
+@pytest.mark.parametrize("example_name", ["async_chat.py", "async_evaluate.py"])
 @pytest.mark.asyncio
-async def test_async_chat_example_executes_with_mock_transport(
+async def test_async_examples_execute_with_mock_transport(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    example_name: str,
 ) -> None:
     real_client = httpx.AsyncClient
 
@@ -318,10 +377,11 @@ async def test_async_chat_example_executes_with_mock_transport(
             **kwargs,
         )
 
-    monkeypatch.setenv("ZENTURE_API_KEY", "zt_fake_docs_examples")
+    monkeypatch.setenv("ZENTURE_API_KEY", "zt_test_docs_examples")
+    monkeypatch.setenv("ZENTURE_BASE_URL", "http://localhost")
     monkeypatch.setattr(httpx, "AsyncClient", client_factory)
 
-    module = _load_example(ROOT / "examples" / "async_chat.py")
+    module = _load_example(ROOT / "examples" / example_name)
     main = cast("Callable[[], Awaitable[None]]", module.__dict__["main"])
     await main()
     assert capsys.readouterr().out

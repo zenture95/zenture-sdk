@@ -286,59 +286,45 @@
         "additionalProperties": false,
         "properties": {
           "ai_answer": {
-            "description": "AI answer to evaluate.",
+            "description": "Required AI answer to evaluate.",
             "maxLength": 40000,
             "minLength": 1,
-            "title": "Ai Answer",
             "type": "string"
           },
           "chat_id": {
-            "anyOf": [
-              {
-                "maxLength": 140,
-                "minLength": 8,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional public chat ID.",
-            "title": "Chat Id"
+            "description": "Optional legacy/correlation-only chat id. Without model_response_id this does not create or mutate chat history.",
+            "maxLength": 140,
+            "minLength": 8,
+            "type": "string"
+          },
+          "external_id": {
+            "description": "Optional caller-owned correlation id for external evaluations.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Optional bounded caller correlation metadata. Do not include prompts, answers, URLs, source content, tokens, or PII.",
+            "maxProperties": 50,
+            "type": "object"
           },
           "model_response_id": {
-            "anyOf": [
-              {
-                "maxLength": 140,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional model response ID.",
-            "title": "Model Response Id"
+            "description": "Optional legacy chat-target model response id. When supplied, the evaluation targets an existing owned zenture chat response.",
+            "maxLength": 140,
+            "minLength": 1,
+            "type": "string"
           },
           "turn_id": {
-            "anyOf": [
-              {
-                "maxLength": 140,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional chat turn ID.",
-            "title": "Turn Id"
+            "description": "Optional legacy/correlation-only turn id. Without model_response_id this does not create or mutate chat history.",
+            "maxLength": 140,
+            "minLength": 1,
+            "type": "string"
           },
           "user_message": {
-            "description": "User message that was answered.",
+            "description": "Required user message that the external or legacy chat answer responded to.",
             "maxLength": 40000,
             "minLength": 1,
-            "title": "User Message",
             "type": "string"
           }
         },
@@ -346,7 +332,6 @@
           "user_message",
           "ai_answer"
         ],
-        "title": "EvaluateRequest",
         "type": "object"
       },
       "InputWizardRequest": {
@@ -538,6 +523,20 @@
           },
           "model_answer": {
             "type": "string"
+          },
+          "model_response_id": {
+            "maxLength": 140,
+            "nullable": true,
+            "type": "string"
+          },
+          "model_response_ids": {
+            "default": [],
+            "items": {
+              "maxLength": 140,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": "array"
           },
           "turn_id": {
             "type": "string"
@@ -807,6 +806,15 @@
             "nullable": true,
             "type": "string"
           },
+          "model_response_ids": {
+            "default": [],
+            "items": {
+              "maxLength": 140,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
           "resource_id": {
             "nullable": true,
             "type": "string"
@@ -820,6 +828,12 @@
             ],
             "type": "string"
           },
+          "score": {
+            "maximum": 100,
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
           "status": {
             "anyOf": [
               {
@@ -829,6 +843,14 @@
                 "type": "null"
               }
             ]
+          },
+          "target_kind": {
+            "enum": [
+              "chat_model_response",
+              "api_external_chat_message"
+            ],
+            "nullable": true,
+            "type": "string"
           },
           "turn_id": {
             "maxLength": 140,
@@ -4266,10 +4288,6 @@
     {
       "description": "Production public API origin",
       "url": "https://api.zenture.app"
-    },
-    {
-      "description": "Integration public API origin",
-      "url": "https://api-int.zenture.app"
     }
   ]
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Literal, Self, cast
+from typing import Annotated, Any, Literal, Self, cast
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
@@ -89,16 +89,47 @@ class PublicErrorEnvelope(SDKBaseModel):
 
 
 class PublicOperationResult(SDKBaseModel):
-    """Bounded safe-reference operation result."""
+    """Bounded safe-reference operation result.
+
+    Chat operations expose ids only, not prompt or answer bodies. Use
+    ``chat_id`` for follow-up turns, ``turn_id`` to locate the turn, and
+    ``model_response_id``/``model_response_ids`` as AI-answer ids for internal
+    zenture chat evaluation.
+    """
 
     result_type: PublicOperationResultType
     chat_id: str | None = Field(default=None, pattern=r"^chat_[A-Za-z0-9_-]{3,128}$")
     completed_at: AwareDatetime | None = None
     evaluation_id: str | None = Field(default=None, pattern=r"^eval_[A-Za-z0-9_-]{3,128}$")
+    input_wizard_id: str | None = None
     model_response_id: str | None = Field(default=None, max_length=140)
+    model_response_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
+    optimized_prompt: str | None = None
     resource_id: str | None = None
-    status: OperationStatus | None = None
+    score: float | None = Field(default=None, ge=0, le=100)
+    status: OperationStatus | str | None = None
+    target_kind: Literal["chat_model_response", "api_external_chat_message"] | None = None
     turn_id: str | None = Field(default=None, max_length=140)
+    wizard_session_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_nested_result_projection(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        result = cast("dict[str, Any]", value)
+        for key in ("chat", "evaluation", "input_wizard"):
+            nested = result.get(key)
+            if isinstance(nested, dict):
+                projection = dict(cast("dict[str, Any]", nested))
+                projection.setdefault("result_type", key)
+                return projection
+        return value
+
+    @field_validator("model_response_ids", mode="before")
+    @classmethod
+    def _coerce_model_response_ids(cls, value: object) -> object:
+        return _coerce_tuple(value)
 
     @field_validator("completed_at", mode="before")
     @classmethod
@@ -109,7 +140,10 @@ class PublicOperationResult(SDKBaseModel):
     @classmethod
     def _coerce_status(cls, value: object) -> object:
         if isinstance(value, str):
-            return OperationStatus(value)
+            try:
+                return OperationStatus(value)
+            except ValueError:
+                return value
         return value
 
 
@@ -151,17 +185,30 @@ class PublicChatSummary(SDKBaseModel):
 
 
 class PublicChatTurn(SDKBaseModel):
-    """Public chat turn returned by message routes."""
+    """Public chat turn returned by message routes.
+
+    ``model_response_id`` is the first/single AI-answer id for the turn.
+    ``model_response_ids`` contains all answer ids for multi-model turns. Pass
+    the relevant id to ``client.evaluations`` when evaluating a zenture chat
+    answer.
+    """
 
     turn_id: str
     created_at: AwareDatetime | None
     user_message: str
     model_answer: str
+    model_response_id: str | None = Field(default=None, max_length=140)
+    model_response_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
 
     @field_validator("created_at", mode="before")
     @classmethod
     def _coerce_created_at(cls, value: object) -> object:
         return _coerce_aware_datetime(value)
+
+    @field_validator("model_response_ids", mode="before")
+    @classmethod
+    def _coerce_model_response_ids(cls, value: object) -> object:
+        return _coerce_tuple(value)
 
 
 def _empty_chat_turns() -> tuple[PublicChatTurn, ...]:
@@ -318,7 +365,11 @@ class PublicModelListResponse(SDKBaseModel):
 
 
 class ChatRequest(SDKBaseModel):
-    """Request body for `POST /v1/chat`."""
+    """Request body for `POST /v1/chat`.
+
+    Omit ``chat_id`` to start a new chat. Pass a previous ``chat_id`` to append
+    a follow-up turn.
+    """
 
     message: str = Field(min_length=1, max_length=20000)
     chat_id: str | None = Field(default=None, min_length=8, max_length=140)
@@ -365,10 +416,19 @@ class OperationRunResult(SDKBaseModel):
 
 
 class EvaluateRequest(SDKBaseModel):
-    """Request body for `POST /v1/evaluate`."""
+    """Request body for `POST /v1/evaluate`.
+
+    Always send ``user_message`` and ``ai_answer``. For an existing zenture chat
+    answer, include the answer's ``model_response_id`` and optionally
+    ``chat_id``/``turn_id``. For an external answer, omit zenture chat ids and
+    optionally include caller-owned ``external_id``/``metadata`` for
+    correlation.
+    """
 
     user_message: str = Field(min_length=1, max_length=40000)
     ai_answer: str = Field(min_length=1, max_length=40000)
+    external_id: str | None = Field(default=None, min_length=1, max_length=255)
+    metadata: dict[str, object] = Field(default_factory=dict, max_length=50)
     chat_id: str | None = Field(default=None, min_length=8, max_length=140)
     model_response_id: str | None = Field(default=None, min_length=1, max_length=140)
     turn_id: str | None = Field(default=None, min_length=1, max_length=140)

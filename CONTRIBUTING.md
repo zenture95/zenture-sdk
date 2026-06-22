@@ -16,6 +16,10 @@ examples, and packaging configuration used for prerelease validation.
 - Add deterministic tests for behavior changes.
 - Keep README, docs, examples, and `AGENTS.md` aligned when public behavior
   changes.
+- Maintainers may run controlled non-production checks by setting
+  `ZENTURE_API_KEY` to a test token and `ZENTURE_BASE_URL` to an approved
+  non-production API origin from the private environment runbook. Do not commit
+  non-production hostnames, local port conventions, tokens, payloads, or logs.
 
 ## Pull Requests
 

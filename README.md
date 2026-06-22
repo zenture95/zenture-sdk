@@ -47,12 +47,14 @@ The SDK intentionally does not parse `.env` files. Load environment variables
 through your runtime, deployment platform, secrets manager, or preferred local
 loader.
 
-For controlled debugging only, `Zenture.from_env()` and
-`AsyncZenture.from_env()` also read `ZENTURE_BASE_URL`. Valid remote origins
-are `https://api.zenture.app` and `https://api-int.zenture.app`; local
-`localhost`, `127.0.0.1`, and `[::1]` origins are accepted for local debugging.
-Never derive `ZENTURE_BASE_URL` or constructor `base_url` values from user
-input.
+Live API tokens (`zt_live_...`) are valid only against the production zenture
+API. Test API tokens (`zt_test_...`) require an explicit approved
+non-production API origin through `ZENTURE_BASE_URL` or constructor
+`base_url`. Public SDK documentation intentionally does not publish
+non-production API hostnames; maintainers should use the private environment
+runbook for approved values. Local `localhost`, `127.0.0.1`, and `[::1]`
+origins are accepted for local debugging with test tokens. Never derive
+`ZENTURE_BASE_URL` or constructor `base_url` values from user input.
 
 ## API Documentation
 
@@ -60,6 +62,9 @@ The public API documentation lives at
 `https://www.zenture.app/api-documentation`. Treat the committed OpenAPI
 artifact in this repository as the SDK's local contract source of truth and use
 the public documentation as the human-facing API reference.
+
+For copy-paste SDK usage, routes, and example response structures for every
+public call, see [`docs/sdk-call-reference.md`](./docs/sdk-call-reference.md).
 
 ## Sync Quickstart
 
@@ -162,6 +167,43 @@ with Zenture.from_env() as client:
 Agentic chat mode is not part of Public V1. Do not document or add public
 helpers for it in this SDK.
 
+Continue a chat with a follow-up turn:
+
+```python
+from zenture import Zenture
+from zenture.idempotency import idempotency_key
+
+with Zenture.from_env() as client:
+    first = client.chat.run(
+        message="Give me a concise onboarding checklist for a new API user.",
+        mode="single",
+        idempotency_key=idempotency_key("case-123", "chat-turn-1", "v1"),
+        timeout=120.0,
+    )
+    chat_id = first.result.chat_id
+
+    follow_up = client.chat.run(
+        message="Turn that checklist into three implementation steps.",
+        chat_id=chat_id,
+        mode="single",
+        idempotency_key=idempotency_key("case-123", "chat-turn-2", "v1"),
+        timeout=120.0,
+    )
+    print(follow_up.result.turn_id, follow_up.result.model_response_id)
+```
+
+Read chat turns when you need the exact `user_message`, `model_answer`, and
+`model_response_id` for evaluation:
+
+```python
+from zenture import Zenture
+
+with Zenture.from_env() as client:
+    messages = client.chat.messages("chat_example")
+    turn = messages.turns[0]
+    print(turn.user_message, turn.model_answer, turn.model_response_id)
+```
+
 ## Input Wizard
 
 ```python
@@ -174,21 +216,90 @@ with Zenture.from_env() as client:
         timeout=120.0,
     )
     print(result.operation_id, result.status)
+    if result.result and result.result.optimized_prompt:
+        print(result.result.optimized_prompt)
 ```
 
 ## Evaluations
+
+External answer evaluation creates an external evaluation-only record. It does
+not add the submitted content to normal zenture chat history. If the answer
+contains sources, include them directly in `ai_answer` as Markdown links,
+footnotes, or plain URLs:
+
+```python
+from zenture import Zenture
+from zenture.idempotency import idempotency_key
+
+with Zenture.from_env() as client:
+    result = client.evaluations.run(
+        user_message="What is zenture?",
+        ai_answer=(
+            "zenture evaluates AI outputs. "
+            "[Source](https://example.com/product-brief)"
+        ),
+        external_id="support-ticket-123-answer-a",
+        metadata={"source": "support_bot", "answer_format": "markdown_with_sources"},
+        idempotency_key=idempotency_key("support-ticket-123-answer-a", "evaluate", "v1"),
+        timeout=120.0,
+    )
+    print(result.operation_id, result.status)
+```
+
+Internal zenture chat-answer evaluation uses the AI-answer `model_response_id`.
+That id is not the user-message id.
+
+```python
+from zenture import Zenture
+from zenture.idempotency import idempotency_key
+
+with Zenture.from_env() as client:
+    chat = client.chat.run(
+        message="Draft three customer-support next steps.",
+        mode="single",
+        idempotency_key=idempotency_key("case-456", "chat-turn-1", "v1"),
+        timeout=120.0,
+    )
+    chat_id = chat.result.chat_id
+    turn_id = chat.result.turn_id
+    model_response_id = chat.result.model_response_id or chat.result.model_response_ids[0]
+
+    turn = next(
+        item for item in client.chat.messages(chat_id).turns
+        if item.turn_id == turn_id
+    )
+
+    evaluation = client.evaluations.run(
+        user_message=turn.user_message,
+        ai_answer=turn.model_answer,
+        chat_id=chat_id,
+        turn_id=turn_id,
+        model_response_id=model_response_id,
+        idempotency_key=idempotency_key(model_response_id, "evaluate", "v1"),
+        timeout=120.0,
+    )
+    print(evaluation.status)
+```
+
+Use `external_id` only as optional caller-side correlation. Use
+`idempotency_key` as the required retry-safety key for each mutating request.
+
+## Account Reads
+
+Read billing, usage, and route limits without creating billable work:
 
 ```python
 from zenture import Zenture
 
 with Zenture.from_env() as client:
-    result = client.evaluations.run(
-        user_message="What is zenture?",
-        ai_answer="zenture evaluates AI outputs.",
-        idempotency_key="case-123-evaluation-v1",
-        timeout=120.0,
-    )
-    print(result.operation_id, result.status)
+    billing = client.billing.get()
+    api_usage = client.usage.get(scope="api")
+    all_usage = client.usage.get(scope="all")
+    limits = client.limits.get()
+
+    print(billing.plan, billing.status)
+    print(api_usage.operation_count, all_usage.operation_count)
+    print(limits.operation_statuses)
 ```
 
 ## Operation Polling
@@ -249,7 +360,7 @@ from zenture import Zenture
 from zenture.idempotency import idempotency_key
 
 with Zenture.from_env() as client:
-    key = idempotency_key("case-123", "chat", "v1")
+    key = idempotency_key("case-123", "chat-turn-1", "v1")
     result = client.chat.run(
         message="Create a concise summary.",
         idempotency_key=key,
@@ -257,6 +368,13 @@ with Zenture.from_env() as client:
     )
     print(result.idempotency_key)
 ```
+
+Example keys:
+
+- `idempotency_key("case-123", "chat-turn-1", "v1")`
+- `idempotency_key("case-123", "chat-turn-2", "v1")`
+- `idempotency_key("support-ticket-123-answer-a", "evaluate", "v1")`
+- `idempotency_key("response_abc123", "evaluate", "v1")`
 
 ## Errors
 
@@ -295,6 +413,9 @@ included in exception strings.
   polling budget, not the raw HTTP read timeout.
 - Polling uses deterministic intervals: `initial_interval=1s`, doubled up to
   `max_interval=8s`, with no jitter.
+- Manual `GET /v1/operations/{operation_id}` polling should use the same
+  `1s -> 2s -> 4s -> 8s` cadence, should not poll faster than once per second
+  per operation, and must stop at terminal status.
 - Retry default is `max_retries=2`.
 - Retryable HTTP responses include `429`, `500`, `502`, `503`, and `504` when
   the public error code is retryable.
@@ -304,10 +425,13 @@ included in exception strings.
 ## Base URL Policy
 
 - Default production API origin: `https://api.zenture.app`
-- INT origin for controlled debugging: `https://api-int.zenture.app`
-- Local `localhost`, `127.0.0.1`, and `[::1]` origins are only for local
-  debugging.
-- `ZENTURE_BASE_URL` is supported by `from_env()` for controlled debugging.
+- Live API tokens (`zt_live_...`) can only use the production origin.
+- Test API tokens (`zt_test_...`) require an explicit approved
+  non-production API origin or local debugging origin.
+- Public documentation intentionally does not publish non-production API
+  hostnames.
+- `ZENTURE_BASE_URL` is supported by `from_env()` for controlled debugging with
+  test tokens.
 - Never derive `base_url` from user input.
 - URL credentials, paths, query strings, fragments, and arbitrary HTTPS origins
   are rejected.

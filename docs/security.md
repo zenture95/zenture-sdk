@@ -22,9 +22,13 @@ package.
 
 ## Base URL Restrictions
 
-The default production origin is `https://api.zenture.app`. `ZENTURE_BASE_URL`
-may point to `https://api-int.zenture.app` or a local debugging origin only in
-controlled developer environments. Never derive `ZENTURE_BASE_URL` or
+The default production origin is `https://api.zenture.app`. Live API tokens
+(`zt_live_...`) are valid only against production. Test API tokens
+(`zt_test_...`) require an explicit approved non-production API origin or local
+debugging origin through `ZENTURE_BASE_URL` or constructor `base_url`.
+
+Public SDK documentation must not publish non-production API hostnames,
+deployment names, or local port conventions. Never derive `ZENTURE_BASE_URL` or
 constructor `base_url` values from user input.
 
 ## Disclosure

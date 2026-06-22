@@ -71,9 +71,8 @@ OpenAPI Stand:
 
 - OpenAPI: `3.1.0`
 - Contract Version: `1.0.0-rc.2`
-- Server:
+- Public server:
   - `https://api.zenture.app`
-  - `https://api-int.zenture.app`
 - Public API Base Path: `/v1`
 
 V1 API-token Routen im aktuellen OpenAPI-Artefakt:
@@ -610,11 +609,11 @@ Rules:
 - Caller-provided `httpx.Client` / `httpx.AsyncClient` instances are accepted for
   advanced integrations and tests. The caller remains responsible for their
   timeout, limits and lifecycle policy.
-- `ZENTURE_BASE_URL` is supported only for local debugging and INT usage. Public docs must state that base URLs must never come from user input.
+- `ZENTURE_BASE_URL` is supported only for approved non-production and local debugging usage with test tokens. Public docs must state that base URLs must never come from user input and must not publish non-production API hostnames.
 - Base URL validation allows only:
-  - `https://api.zenture.app`
-  - `https://api-int.zenture.app`
-  - local debugging origins on `localhost`, `127.0.0.1`, or `::1`
+  - `https://api.zenture.app` for live tokens
+  - approved non-production zenture API origins for test tokens
+  - local debugging origins on `localhost`, `127.0.0.1`, or `::1` for test tokens
 - Base URL validation rejects arbitrary HTTPS origins such as `https://evil.example`, URL credentials, paths, query strings and fragments.
 - The SDK appends the versioned `/v1` API path internally unless a final transport design explicitly stores `base_url` as the versioned API root. Public examples should use the production origin `https://api.zenture.app`.
 - Tests use `respx` or `httpx.MockTransport`; no network by default.

@@ -38,12 +38,12 @@ the token from `ZENTURE_API_KEY`.
 
 The production origin is `https://api.zenture.app`.
 
-For controlled debugging only, `from_env()` also reads `ZENTURE_BASE_URL`.
-Valid remote origins are:
+Live API tokens (`zt_live_...`) can only use the production origin. Test API
+tokens (`zt_test_...`) require an explicit approved non-production API origin
+through `ZENTURE_BASE_URL` or constructor `base_url`.
 
-- `https://api.zenture.app`
-- `https://api-int.zenture.app`
-
-Local `localhost`, `127.0.0.1`, and `[::1]` origins are accepted for local
-debugging. Never derive `ZENTURE_BASE_URL` or constructor `base_url` values from
-user input.
+Public SDK documentation intentionally does not publish non-production API
+hostnames. Maintainers should use the private environment runbook for approved
+values. Local `localhost`, `127.0.0.1`, and `[::1]` origins are accepted for
+local debugging with test tokens. Never derive `ZENTURE_BASE_URL` or
+constructor `base_url` values from user input.

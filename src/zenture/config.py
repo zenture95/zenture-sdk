@@ -12,7 +12,6 @@ from zenture.models import SDKBaseModel
 from zenture.redaction import REDACTED
 
 DEFAULT_BASE_URL = "https://api.zenture.app"
-INT_BASE_URL = "https://api-int.zenture.app"
 API_VERSION_PATH = "/v1"
 DEFAULT_CONNECT_TIMEOUT = 5.0
 DEFAULT_READ_TIMEOUT = 30.0
@@ -21,8 +20,9 @@ DEFAULT_POOL_TIMEOUT = 30.0
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_INITIAL_RETRY_BACKOFF = 0.5
 DEFAULT_MAX_RETRY_BACKOFF = 8.0
-_ALLOWED_REMOTE_BASE_URLS = frozenset({DEFAULT_BASE_URL, INT_BASE_URL})
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_LIVE_TOKEN_PREFIX = "zt_live_"
+_TEST_TOKEN_PREFIX = "zt_test_"
 
 
 class ZentureConfig(SDKBaseModel):
@@ -45,6 +45,8 @@ class ZentureConfig(SDKBaseModel):
             raise ValueError("api_key must not be empty.")
         if value != value.strip():
             raise ValueError("api_key must not include surrounding whitespace.")
+        if not value.startswith((_LIVE_TOKEN_PREFIX, _TEST_TOKEN_PREFIX)):
+            raise ValueError("api_key must start with zt_live_ or zt_test_.")
         return value
 
     @field_validator("base_url", mode="before")
@@ -72,16 +74,28 @@ class ZentureConfig(SDKBaseModel):
         if path:
             raise ValueError("base_url must be an origin without a path.")
 
-        normalized = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-        if not is_local and normalized not in _ALLOWED_REMOTE_BASE_URLS:
-            raise ValueError(
-                "base_url must be the official production, INT, or local debugging origin."
-            )
-
-        return normalized
+        return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), "", "", ""))
 
     @model_validator(mode="after")
-    def _validate_retry_backoff(self) -> Self:
+    def _validate_environment_and_retry_policy(self) -> Self:
+        base_url_was_provided = "base_url" in self.model_fields_set
+        is_live_token = self.api_key.startswith(_LIVE_TOKEN_PREFIX)
+        is_test_token = self.api_key.startswith(_TEST_TOKEN_PREFIX)
+
+        if is_live_token and self.base_url != DEFAULT_BASE_URL:
+            raise ValueError("Live API tokens can only be used with the production zenture API.")
+
+        if is_test_token:
+            if not base_url_was_provided:
+                raise ValueError("Test API tokens require an approved non-production API base URL.")
+            if self.base_url == DEFAULT_BASE_URL:
+                raise ValueError("Test API tokens cannot be used with the production zenture API.")
+            if not _is_approved_non_production_origin(self.base_url):
+                raise ValueError(
+                    "base_url must be an approved non-production zenture API origin "
+                    "or a local debugging origin."
+                )
+
         if self.max_retry_backoff < self.initial_retry_backoff:
             raise ValueError(
                 "max_retry_backoff must be greater than or equal to initial_retry_backoff."
@@ -123,3 +137,16 @@ def load_config_from_env() -> ZentureConfig:
 
     base_url = os.environ.get("ZENTURE_BASE_URL", DEFAULT_BASE_URL)
     return ZentureConfig(api_key=api_key, base_url=base_url)
+
+
+def _is_approved_non_production_origin(base_url: str) -> bool:
+    parsed = urlsplit(base_url)
+    hostname = parsed.hostname or ""
+    if hostname in _LOCAL_HOSTS:
+        return True
+    return (
+        parsed.scheme == "https"
+        and hostname.startswith("api-")
+        and hostname.endswith(".zenture.app")
+        and hostname != "api.zenture.app"
+    )

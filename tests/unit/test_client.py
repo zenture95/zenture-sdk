@@ -17,30 +17,30 @@ def test_public_clients_are_exported() -> None:
 
 
 def test_sync_client_repr_redacts_api_key() -> None:
-    client = Zenture(api_key="zt_test_client_123")
+    client = Zenture(api_key="zt_live_client_123")
 
-    assert "zt_test_client_123" not in repr(client)
+    assert "zt_live_client_123" not in repr(client)
     assert "<redacted>" in repr(client)
     assert "https://api.zenture.app/v1" in repr(client)
 
     client.close()
 
 
-def test_sync_client_accepts_int_base_url() -> None:
-    client = Zenture(api_key="zt_test_client_123", base_url="https://api-int.zenture.app")
+def test_sync_client_accepts_non_production_base_url_for_test_tokens() -> None:
+    client = Zenture(api_key="zt_test_client_123", base_url="https://api-example.zenture.app")
 
-    assert "https://api-int.zenture.app/v1" in repr(client)
+    assert "https://api-example.zenture.app/v1" in repr(client)
 
     client.close()
 
 
 def test_sync_client_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZENTURE_API_KEY", "zt_test_client_env")
-    monkeypatch.setenv("ZENTURE_BASE_URL", "https://api-int.zenture.app")
+    monkeypatch.setenv("ZENTURE_BASE_URL", "https://api-example.zenture.app")
     client = Zenture.from_env()
 
     assert "zt_test_client_env" not in repr(client)
-    assert "https://api-int.zenture.app/v1" in repr(client)
+    assert "https://api-example.zenture.app/v1" in repr(client)
 
     client.close()
 
@@ -55,7 +55,7 @@ def test_sync_helloworld_returns_markdown_without_authorization_header() -> None
         return httpx.Response(200, text="# Hello from zenture")
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -81,7 +81,7 @@ def test_sync_client_maps_error_responses_without_leaking_tokens() -> None:
         )
 
     client = Zenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -95,7 +95,7 @@ def test_sync_client_maps_error_responses_without_leaking_tokens() -> None:
 
 
 def test_sync_client_context_manager_closes_owned_client() -> None:
-    with Zenture(api_key="zt_test_client_123") as client:
+    with Zenture(api_key="zt_live_client_123") as client:
         assert not client.is_closed
 
     assert client.is_closed
@@ -112,7 +112,7 @@ async def test_async_helloworld_returns_markdown_without_authorization_header() 
         return httpx.Response(200, text="# Hello from zenture")
 
     client = AsyncZenture(
-        api_key="zt_test_client_123",
+        api_key="zt_live_client_123",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
@@ -124,11 +124,11 @@ async def test_async_helloworld_returns_markdown_without_authorization_header() 
 
 @pytest.mark.asyncio
 async def test_async_client_repr_redacts_api_key() -> None:
-    client = AsyncZenture(api_key="zt_test_client_123", base_url="https://api-int.zenture.app")
+    client = AsyncZenture(api_key="zt_test_client_123", base_url="https://api-example.zenture.app")
 
     assert "zt_test_client_123" not in repr(client)
     assert "<redacted>" in repr(client)
-    assert "https://api-int.zenture.app/v1" in repr(client)
+    assert "https://api-example.zenture.app/v1" in repr(client)
 
     await client.aclose()
 
@@ -136,18 +136,18 @@ async def test_async_client_repr_redacts_api_key() -> None:
 @pytest.mark.asyncio
 async def test_async_client_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZENTURE_API_KEY", "zt_test_client_env")
-    monkeypatch.setenv("ZENTURE_BASE_URL", "https://api-int.zenture.app")
+    monkeypatch.setenv("ZENTURE_BASE_URL", "https://api-example.zenture.app")
     client = AsyncZenture.from_env()
 
     assert "zt_test_client_env" not in repr(client)
-    assert "https://api-int.zenture.app/v1" in repr(client)
+    assert "https://api-example.zenture.app/v1" in repr(client)
 
     await client.aclose()
 
 
 @pytest.mark.asyncio
 async def test_async_client_context_manager_closes_owned_client() -> None:
-    async with AsyncZenture(api_key="zt_test_client_123") as client:
+    async with AsyncZenture(api_key="zt_live_client_123") as client:
         assert not client.is_closed
 
     assert client.is_closed

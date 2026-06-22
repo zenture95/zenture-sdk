@@ -69,6 +69,7 @@ def test_public_operation_result_is_bounded_and_strict() -> None:
     result = PublicOperationResult(
         result_type="chat",
         chat_id="chat_abc123",
+        model_response_ids=("response_123",),
         status=OperationStatus.SUCCEEDED,
     )
 
@@ -80,11 +81,14 @@ def test_public_operation_result_is_bounded_and_strict() -> None:
             "result_type": "chat",
             "chat_id": "chat_abc123",
             "completed_at": "2026-06-15T12:00:00Z",
+            "model_response_id": "response_123",
+            "model_response_ids": ["response_123"],
             "status": "succeeded",
         }
     )
     assert from_json.status is OperationStatus.SUCCEEDED
     assert from_json.completed_at == datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    assert from_json.model_response_ids == ("response_123",)
 
     with pytest.raises(ValidationError):
         PublicOperationResult.model_validate({"result_type": "chat", "unexpected": True})
@@ -172,6 +176,12 @@ def test_mutation_request_models_are_strict_and_match_required_fields() -> None:
         {"message": "hello", "mode": "multi", "models": ["model-a", "model-b"]}
     ).models == ("model-a", "model-b")
     assert EvaluateRequest(user_message="question", ai_answer="answer").ai_answer == "answer"
+    assert EvaluateRequest(
+        user_message="question",
+        ai_answer="answer",
+        external_id="customer-eval-123",
+        metadata={"customer_id": "safe-correlation"},
+    ).metadata == {"customer_id": "safe-correlation"}
     assert InputWizardRequest(mode="prompt_improvement", prompt="make this better").mode == (
         "prompt_improvement"
     )
@@ -205,6 +215,14 @@ def test_mutation_request_models_are_strict_and_match_required_fields() -> None:
         ChatRequest.model_validate({"message": "hello", "mode": "agentic"})
     with pytest.raises(ValidationError):
         EvaluateRequest.model_validate({"user_message": "question"})
+    with pytest.raises(ValidationError):
+        EvaluateRequest.model_validate(
+            {
+                "user_message": "question",
+                "ai_answer": "answer",
+                "external_id": "x" * 256,
+            }
+        )
     with pytest.raises(ValidationError):
         InputWizardRequest.model_validate({"mode": "other", "prompt": "x"})
 

@@ -14,7 +14,17 @@ class IdempotencyKeyError(ValueError):
 
 
 def idempotency_key(*parts: object) -> str:
-    """Build a stable idempotency key from caller-owned identifiers."""
+    """Build a stable retry-safety key from caller-owned identifiers.
+
+    Use one key per logical mutation and reuse the same key when retrying the
+    same request. Good parts are stable ids from your system, such as
+    ``("support-ticket-123-answer-a", "evaluate", "v1")`` or
+    ``("case-123", "chat-turn-2", "v1")``.
+
+    Do not include prompts, answers, API tokens, raw request bodies, secrets, or
+    customer PII in idempotency keys. For external evaluations, this key is
+    required retry protection; ``external_id`` is only optional correlation.
+    """
 
     normalized = [_normalize_part(str(part)) for part in parts]
     key = "-".join(part for part in normalized if part)
@@ -22,7 +32,12 @@ def idempotency_key(*parts: object) -> str:
 
 
 def validate_idempotency_key(key: str) -> str:
-    """Validate and return a caller-provided idempotency key."""
+    """Validate and return a caller-provided idempotency key.
+
+    The public API requires this value on mutating async routes including chat,
+    evaluation, and input wizard. The same key with the same body is a safe
+    retry; the same key with a different body is an idempotency conflict.
+    """
 
     if not key:
         raise IdempotencyKeyError("Idempotency key must not be empty.")

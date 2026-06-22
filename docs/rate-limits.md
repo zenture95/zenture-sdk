@@ -22,3 +22,8 @@ By default, network exceptions from `httpx.HTTPError` are mapped to
 For `ZentureRateLimitError`, inspect `exc.retry_after` when present and schedule
 the next attempt after that delay. For operation polling, prefer resuming with
 `operations.get(operation_id)` instead of recreating work.
+
+For manual operation polling, use the same cadence as the SDK helpers:
+`1s -> 2s -> 4s -> 8s`, then keep polling every `8s` until terminal status or
+your local timeout. Do not poll an operation faster than once per second, and
+always stop after `succeeded`, `failed`, `cancelled`, or `expired`.

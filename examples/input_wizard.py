@@ -15,6 +15,8 @@ def main() -> None:
             timeout=120.0,
         )
         print(result.operation_id, result.status)
+        if result.result and result.result.optimized_prompt:
+            print(result.result.optimized_prompt)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from zenture._resources._utils import (
 from zenture._resources.operations import AsyncOperationsResource, OperationsResource
 from zenture.errors import ZenturePollingStoppedError, ZenturePollingTimeoutError
 from zenture.idempotency import idempotency_key as build_idempotency_key
+from zenture.polling import is_terminal_status
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -65,6 +66,8 @@ class InputWizardResource:
 
         key = idempotency_key or _generated_input_wizard_idempotency_key()
         operation = self.create(prompt=prompt, idempotency_key=key, mode=mode)
+        if is_terminal_status(operation.status):
+            return operation_run_result(operation=operation, idempotency_key=key)
         try:
             final_operation = OperationsResource(self._transport).wait(
                 operation.operation_id,
@@ -121,6 +124,8 @@ class AsyncInputWizardResource:
 
         key = idempotency_key or _generated_input_wizard_idempotency_key()
         operation = await self.create(prompt=prompt, idempotency_key=key, mode=mode)
+        if is_terminal_status(operation.status):
+            return operation_run_result(operation=operation, idempotency_key=key)
         try:
             final_operation = await AsyncOperationsResource(self._transport).wait(
                 operation.operation_id,
