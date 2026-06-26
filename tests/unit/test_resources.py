@@ -822,6 +822,65 @@ def test_sync_chat_run_accepts_nested_live_chat_operation_result() -> None:
     client.close()
 
 
+def test_sync_chat_run_include_content_attaches_matching_turn() -> None:
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path == "/v1/chat":
+            return httpx.Response(202, json=OPERATION_PAYLOAD)
+        if request.url.path == "/v1/operations/op_abc123":
+            return httpx.Response(
+                200,
+                json={
+                    "operation_id": "op_abc123",
+                    "status": "succeeded",
+                    "result": {
+                        "result_type": "chat",
+                        "chat_id": "chat_abc123",
+                        "turn_id": "turn_abc123",
+                        "model_response_id": "response_abc123",
+                    },
+                },
+            )
+        if request.url.path == "/v1/chats/chat_abc123/messages":
+            return httpx.Response(
+                200,
+                json={
+                    "chat_id": "chat_abc123",
+                    "turns": [CHAT_TURN],
+                    "next_cursor": None,
+                },
+            )
+        return httpx.Response(404, json={"error": {"code": "not_found"}})
+
+    client = Zenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = client.chat.run(
+        message="Hello",
+        idempotency_key="chat-run-content-1",
+        poll_interval=0.01,
+        timeout=1.0,
+        include_content=True,
+    )
+
+    assert result.result is not None
+    assert result.result.chat_id == "chat_abc123"
+    assert result.chat_turn is not None
+    assert result.chat_turn.turn_id == "turn_abc123"
+    assert result.chat_turn.user_message == "Hello"
+    assert seen_paths == [
+        "/v1/chat",
+        "/v1/operations/op_abc123",
+        "/v1/chats/chat_abc123/messages",
+    ]
+
+    client.close()
+
+
 def test_sync_input_wizard_run_creates_and_waits_with_generated_idempotency_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -950,6 +1009,54 @@ def test_sync_evaluations_run_creates_and_waits_with_explicit_idempotency_key(
     assert result.result.evaluation_id == "eval_abc123"
     assert result.idempotency_key == "evaluation-run-1"
     assert seen_headers == ["evaluation-run-1"]
+
+    client.close()
+
+
+def test_sync_evaluations_run_include_detail_attaches_evaluation() -> None:
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path == "/v1/evaluate":
+            return httpx.Response(202, json=OPERATION_PAYLOAD)
+        if request.url.path == "/v1/operations/op_abc123":
+            return httpx.Response(
+                200,
+                json={
+                    "operation_id": "op_abc123",
+                    "status": "succeeded",
+                    "result": {"result_type": "evaluation", "evaluation_id": "eval_abc123"},
+                },
+            )
+        if request.url.path == "/v1/evaluations/eval_abc123":
+            return httpx.Response(200, json=EVALUATION)
+        return httpx.Response(404, json={"error": {"code": "not_found"}})
+
+    client = Zenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = client.evaluations.run(
+        user_message="Question",
+        ai_answer="Answer",
+        idempotency_key="evaluation-detail-1",
+        timeout=1.0,
+        initial_interval=0.01,
+        include_detail=True,
+    )
+
+    assert result.result is not None
+    assert result.result.evaluation_id == "eval_abc123"
+    assert result.evaluation is not None
+    assert result.evaluation.evaluation_id == "eval_abc123"
+    assert result.evaluation.score == 0.91
+    assert seen_paths == [
+        "/v1/evaluate",
+        "/v1/operations/op_abc123",
+        "/v1/evaluations/eval_abc123",
+    ]
 
     client.close()
 
@@ -1095,8 +1202,15 @@ def test_sync_evaluation_and_account_read_resources_validate_contract_models() -
             return httpx.Response(200, json={"evaluations": [EVALUATION], "next_cursor": None})
         if request.url.path == "/v1/evaluations/eval_abc123":
             return httpx.Response(200, json=EVALUATION)
-        if request.url.path == "/v1/billing":
-            return httpx.Response(200, json={"plan": "pro", "status": "active"})
+        if request.url.path == "/v1/wallet":
+            return httpx.Response(
+                200,
+                json={
+                    "plan": "pro",
+                    "status": "active",
+                    "credits_available": {"amount": "123.45", "unit": "credits"},
+                },
+            )
         if request.url.path == "/v1/usage":
             return httpx.Response(200, json={"scope": "all", "operation_count": 7})
         if request.url.path == "/v1/limits":
@@ -1126,13 +1240,14 @@ def test_sync_evaluation_and_account_read_resources_validate_contract_models() -
 
     evaluations = client.evaluations.list()
     evaluation = client.evaluations.get("eval_abc123")
-    billing = client.billing.get()
+    wallet = client.wallet.get()
     usage = client.usage.get(scope="all")
     limits = client.limits.get()
 
     assert evaluations.evaluations[0].evaluation_id == "eval_abc123"
     assert evaluation.score == 0.91
-    assert billing.plan == "pro"
+    assert wallet.plan == "pro"
+    assert wallet.credits_available.amount == "123.45"
     assert usage.operation_count == 7
     assert limits.routes["POST /v1/chat"].idempotency_required is True
     assert "https://api.zenture.app/v1/usage?scope=all" in seen_urls
@@ -1224,6 +1339,23 @@ async def test_async_resources_match_sync_surface() -> None:
             return httpx.Response(200, json={"evaluations": [EVALUATION], "next_cursor": None})
         if request.url.path == "/v1/models":
             return httpx.Response(200, json={"models": [PUBLIC_MODEL]})
+        if request.url.path == "/v1/wallet":
+            return httpx.Response(
+                200,
+                json={
+                    "plan": "core",
+                    "status": "core",
+                    "credits_available": {"amount": "123.45", "unit": "credits"},
+                },
+            )
+        if request.url.path == "/v1/limits":
+            return httpx.Response(
+                200,
+                json={
+                    "routes": {},
+                    "operation_statuses": ["queued", "running", "succeeded"],
+                },
+            )
         return httpx.Response(200, json={"scope": "api", "operation_count": 1})
 
     client = AsyncZenture(
@@ -1246,14 +1378,22 @@ async def test_async_resources_match_sync_surface() -> None:
     operation = await client.operations.get("op_abc123")
     evaluations = await client.evaluations.list()
     models = await client.models.list(mode="single")
+    wallet = await client.wallet.get()
     usage = await client.usage.get()
+    limits = await client.limits.get()
 
     assert created.status is OperationStatus.QUEUED
     assert run.status is OperationStatus.SUCCEEDED
     assert operation.operation_id == "op_abc123"
     assert evaluations.evaluations[0].status == "succeeded"
     assert models.models[0].id == "model-public-1"
+    assert wallet.credits_available.amount == "123.45"
     assert usage.scope == "api"
+    assert limits.operation_statuses == (
+        OperationStatus.QUEUED,
+        OperationStatus.RUNNING,
+        OperationStatus.SUCCEEDED,
+    )
     assert seen_paths == [
         "/v1/chat",
         "/v1/chat",
@@ -1261,7 +1401,9 @@ async def test_async_resources_match_sync_surface() -> None:
         "/v1/operations/op_abc123",
         "/v1/evaluations",
         "/v1/models",
+        "/v1/wallet",
         "/v1/usage",
+        "/v1/limits",
     ]
 
     await client.aclose()
@@ -1654,6 +1796,115 @@ async def test_async_input_wizard_and_evaluations_run_create_and_wait() -> None:
     assert seen == [
         ("input_wizard", "wizard-run-1"),
         ("evaluation", "evaluation-run-async-1"),
+    ]
+
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_chat_run_include_content_attaches_matching_turn() -> None:
+    seen_paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path == "/v1/chat":
+            return httpx.Response(202, json=OPERATION_PAYLOAD)
+        if request.url.path == "/v1/operations/op_abc123":
+            return httpx.Response(
+                200,
+                json={
+                    "operation_id": "op_abc123",
+                    "status": "succeeded",
+                    "result": {
+                        "result_type": "chat",
+                        "chat_id": "chat_abc123",
+                        "turn_id": "turn_abc123",
+                        "model_response_id": "response_abc123",
+                    },
+                },
+            )
+        if request.url.path == "/v1/chats/chat_abc123/messages":
+            return httpx.Response(
+                200,
+                json={
+                    "chat_id": "chat_abc123",
+                    "turns": [CHAT_TURN],
+                    "next_cursor": None,
+                },
+            )
+        return httpx.Response(404, json={"error": {"code": "not_found"}})
+
+    client = AsyncZenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await client.chat.run(
+        message="Hello",
+        idempotency_key="async-chat-run-content-1",
+        poll_interval=0.01,
+        timeout=1.0,
+        include_content=True,
+    )
+
+    assert result.result is not None
+    assert result.result.chat_id == "chat_abc123"
+    assert result.chat_turn is not None
+    assert result.chat_turn.turn_id == "turn_abc123"
+    assert result.chat_turn.model_answer == "Hi"
+    assert seen_paths == [
+        "/v1/chat",
+        "/v1/operations/op_abc123",
+        "/v1/chats/chat_abc123/messages",
+    ]
+
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_evaluations_run_include_detail_attaches_evaluation() -> None:
+    seen_paths: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path == "/v1/evaluate":
+            return httpx.Response(202, json=OPERATION_PAYLOAD)
+        if request.url.path == "/v1/operations/op_abc123":
+            return httpx.Response(
+                200,
+                json={
+                    "operation_id": "op_abc123",
+                    "status": "succeeded",
+                    "result": {"result_type": "evaluation", "evaluation_id": "eval_abc123"},
+                },
+            )
+        if request.url.path == "/v1/evaluations/eval_abc123":
+            return httpx.Response(200, json=EVALUATION)
+        return httpx.Response(404, json={"error": {"code": "not_found"}})
+
+    client = AsyncZenture(
+        api_key="zt_live_client_123",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await client.evaluations.run(
+        user_message="Question",
+        ai_answer="Answer",
+        idempotency_key="async-evaluation-detail-1",
+        timeout=1.0,
+        initial_interval=0.01,
+        include_detail=True,
+    )
+
+    assert result.result is not None
+    assert result.result.evaluation_id == "eval_abc123"
+    assert result.evaluation is not None
+    assert result.evaluation.evaluation_id == "eval_abc123"
+    assert result.evaluation.score == 0.91
+    assert seen_paths == [
+        "/v1/evaluate",
+        "/v1/operations/op_abc123",
+        "/v1/evaluations/eval_abc123",
     ]
 
     await client.aclose()

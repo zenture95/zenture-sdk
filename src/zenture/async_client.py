@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from zenture._resources import (
-    AsyncBillingResource,
     AsyncChatResource,
     AsyncEvaluationsResource,
     AsyncHelloworldResource,
@@ -14,6 +13,7 @@ from zenture._resources import (
     AsyncModelsResource,
     AsyncOperationsResource,
     AsyncUsageResource,
+    AsyncWalletResource,
 )
 from zenture._transport import AsyncTransport
 from zenture.config import (
@@ -77,7 +77,7 @@ class AsyncZenture:
         self.chat = AsyncChatResource(self._transport)
         self.input_wizard = AsyncInputWizardResource(self._transport)
         self.evaluations = AsyncEvaluationsResource(self._transport)
-        self.billing = AsyncBillingResource(self._transport)
+        self.wallet = AsyncWalletResource(self._transport)
         self.usage = AsyncUsageResource(self._transport)
         self.limits = AsyncLimitsResource(self._transport)
         self.models = AsyncModelsResource(self._transport)

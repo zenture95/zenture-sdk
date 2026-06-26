@@ -102,6 +102,7 @@ class EvaluationsResource:
         initial_interval: float = 1.0,
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
+        include_detail: bool = False,
     ) -> OperationRunResult:
         """Create and poll an evaluation operation until terminal.
 
@@ -116,7 +117,8 @@ class EvaluationsResource:
 
         When ``idempotency_key`` is omitted this helper generates one and
         returns it on the ``OperationRunResult``. For application retries,
-        prefer a stable key from your own system.
+        prefer a stable key from your own system. Set ``include_detail=True``
+        to attach the public evaluation detail as ``evaluation`` after success.
         """
 
         key = idempotency_key or _generated_evaluation_idempotency_key()
@@ -144,7 +146,16 @@ class EvaluationsResource:
                 operation_id=operation.operation_id,
                 idempotency_key=key,
             ) from None
-        return operation_run_result(operation=final_operation, idempotency_key=key)
+        run_result = operation_run_result(operation=final_operation, idempotency_key=key)
+        if (
+            not include_detail
+            or run_result.result is None
+            or run_result.result.evaluation_id is None
+        ):
+            return run_result
+        return run_result.model_copy(
+            update={"evaluation": self.get(run_result.result.evaluation_id)}
+        )
 
     def list(
         self,
@@ -251,13 +262,16 @@ class AsyncEvaluationsResource:
         initial_interval: float = 1.0,
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
+        include_detail: bool = False,
     ) -> OperationRunResult:
         """Create and poll an evaluation operation until terminal.
 
         For zenture chat answers, pass ``chat_id``, ``turn_id``, and
         ``model_response_id`` with the turn's ``user_message`` and
         ``model_answer``. For external answers, omit zenture chat ids and pass
-        optional ``external_id``/``metadata`` only for correlation.
+        optional ``external_id``/``metadata`` only for correlation. Set
+        ``include_detail=True`` to attach the public evaluation detail as
+        ``evaluation`` after success.
         """
 
         key = idempotency_key or _generated_evaluation_idempotency_key()
@@ -285,7 +299,16 @@ class AsyncEvaluationsResource:
                 operation_id=operation.operation_id,
                 idempotency_key=key,
             ) from None
-        return operation_run_result(operation=final_operation, idempotency_key=key)
+        run_result = operation_run_result(operation=final_operation, idempotency_key=key)
+        if (
+            not include_detail
+            or run_result.result is None
+            or run_result.result.evaluation_id is None
+        ):
+            return run_result
+        return run_result.model_copy(
+            update={"evaluation": await self.get(run_result.result.evaluation_id)}
+        )
 
     async def list(
         self,

@@ -91,8 +91,8 @@ usage.
 
 ### Account Reads
 
-- `client.billing.get()`: fetch public billing status. See
-  [`client.billing.get()`](./sdk-call-reference.md#clientbillingget).
+- `client.wallet.get()`: fetch public wallet plan and available credits. See
+  [`client.wallet.get()`](./sdk-call-reference.md#clientwalletget).
 - `client.usage.get(scope="api")`: fetch API-token usage counters. See
   [`client.usage.get(...)`](./sdk-call-reference.md#clientusageget).
 - `client.usage.get(scope="all")`: fetch all usage counters visible to the
@@ -100,8 +100,11 @@ usage.
 - `client.limits.get()`: fetch public route and operation limits. See
   [`client.limits.get()`](./sdk-call-reference.md#clientlimitsget).
 
-See [`account-reads.md`](./account-reads.md) for billing, usage, and limits
+See [`account-reads.md`](./account-reads.md) for wallet, usage, and limits
 examples.
+
+For a complete prompt-improvement, chat, evaluation, and cost-summary flow, see
+[`examples/end_to_end_chat_evaluation.py`](../examples/end_to_end_chat_evaluation.py).
 
 Paginated read methods accept `limit` from `1` to `100` and optional opaque
 `cursor` values up to `200` characters. The API sorts paginated collections by
@@ -168,6 +171,20 @@ zenture chat history.
 For external answers with sources, put the sources directly into `ai_answer` as
 Markdown links, footnotes, or plain URLs. Public V1 does not require a separate
 structured `sources` field; zenture evaluates the Markdown answer as submitted.
+
+Billing and evaluation result fields:
+
+- Completed chat and evaluation operations include `amount_billed` when the
+  ledger debit is available, for example `{"amount": "4.41", "unit": "credits"}`.
+- `amount_billed.amount` is the display credit amount with two decimal places,
+  not an internal subunit field.
+- `client.evaluations.get(evaluation_id)` returns `zenture_summary`,
+  `zenture_suggestion`, `zenture_kpi_details`, `results`, and `sources` when
+  the evaluation has completed.
+- `sources` is grouped by model. Source rows can include `status` or
+  `retrievalStatus` (`available`, `limited`, `unavailable`, `unverified`),
+  `httpStatus`, `verdict`, `url`, `hostname`, `securityLabel`,
+  `accessibilityScore`, and `responseTimeMs`.
 
 ```python
 from zenture import Zenture

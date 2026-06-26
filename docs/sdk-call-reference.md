@@ -110,6 +110,12 @@ Example response:
 }
 ```
 
+`wallet.get()` returns the current public plan/status projection and available
+credits. It does not expose Stripe, invoice, pricing, ledger, or payment-method
+details. Per-operation costs are exposed as `amount_billed` on completed chat
+and evaluation results. `usage.get()` returns operation counts, not a credit
+ledger.
+
 Use `mode="single"` for single-model chat and `mode="multi"` for multi-model
 chat. Omit `mode` to list all visible public models.
 
@@ -190,8 +196,11 @@ with Zenture.from_env() as client:
         mode="single",
         idempotency_key=idempotency_key("case-123", "chat-turn-1", "v1"),
         timeout=120.0,
+        include_content=True,
     )
+    print(result.result.amount_billed)
     print(result.result.chat_id, result.result.turn_id, result.result.model_response_id)
+    print(result.chat_turn.user_message, result.chat_turn.model_answer)
 ```
 
 Example response:
@@ -208,6 +217,7 @@ Example response:
         "model_response_ids": ("resp_example",),
         "status": "completed",
         "completed_at": "2026-06-22T10:00:00Z",
+        "amount_billed": {"amount": "4.41", "unit": "credits"},
     },
     "error": None,
     "idempotency_key": "case-123-chat-turn-1-v1",
@@ -217,6 +227,11 @@ Example response:
 
 Use `chat_id` for follow-up turns. Use `model_response_id` as the internal
 AI-answer id when evaluating this zenture-generated answer.
+
+Set `include_content=True` when the caller needs the matching public chat turn
+in the same SDK call. The SDK then performs one additional
+`GET /v1/chats/{chat_id}/messages` request and attaches the matching turn as
+`result.chat_turn`. Leave it unset for lower-latency operation polling.
 
 The SDK exposes chat operation results as flat fields on `result`. If a public
 operation read contains the same ids nested under a known result wrapper, the
@@ -240,6 +255,7 @@ with Zenture.from_env() as client:
         mode="single",
         idempotency_key=idempotency_key("case-123", "chat-turn-2", "v1"),
     )
+    print(follow_up.result.amount_billed)
     print(follow_up.result.chat_id, follow_up.result.turn_id)
 ```
 
@@ -557,8 +573,10 @@ with Zenture.from_env() as client:
         metadata={"source": "support_bot", "answer_format": "markdown_with_sources"},
         idempotency_key=idempotency_key("support-ticket-123-answer-a", "evaluate", "v1"),
         timeout=120.0,
+        include_detail=True,
     )
     print(result.result.evaluation_id, result.result.score)
+    print(result.evaluation.status, result.evaluation.score)
 ```
 
 Example response:
@@ -574,12 +592,18 @@ Example response:
         "status": "succeeded",
         "target_kind": "api_external_chat_message",
         "completed_at": "2026-06-22T10:05:00Z",
+        "amount_billed": {"amount": "2.00", "unit": "credits"},
     },
     "error": None,
     "idempotency_key": "support-ticket-123-answer-a-evaluate-v1",
     "last_request_id": None,
 }
 ```
+
+Set `include_detail=True` when the caller wants the public evaluation detail in
+the same SDK call. The SDK then performs one additional
+`GET /v1/evaluations/{evaluation_id}` request and attaches it as
+`result.evaluation`. Leave it unset when the operation result is enough.
 
 ### `client.evaluations.run(...)` for internal zenture chat answers
 
@@ -612,8 +636,10 @@ with Zenture.from_env() as client:
         model_response_id=model_response_id,
         idempotency_key=idempotency_key(model_response_id, "evaluate", "v1"),
         timeout=120.0,
+        include_detail=True,
     )
     print(result.result.evaluation_id, result.result.target_kind)
+    print(result.evaluation.status, result.evaluation.score)
 ```
 
 Example response:
@@ -629,10 +655,73 @@ Example response:
         "status": "succeeded",
         "target_kind": "chat_model_response",
         "completed_at": "2026-06-22T10:05:00Z",
+        "amount_billed": {"amount": "2.00", "unit": "credits"},
     },
     "error": None,
     "idempotency_key": "resp-example-evaluate-v1",
     "last_request_id": None,
+}
+```
+
+### `client.evaluations.get(...)` result details
+
+Route: `GET /v1/evaluations/{evaluation_id}`
+
+The detail response uses user-facing zenture field names:
+
+- `amount_billed`: display credit amount charged for the evaluation, for example `{"amount": "2.00", "unit": "credits"}`.
+- `zenture_summary`: per-model summary of the evaluation.
+- `zenture_suggestion`: per-model improvement suggestion.
+- `zenture_kpi_details`: per-model KPI detail map.
+- `results`: one row per KPI with `model_id`, `kpi_key`, `value`, and safe `analysis` when available.
+- `sources`: per-model source verification results. Source rows can include `status`/`retrievalStatus` such as `available`, `limited`, `unavailable`, or `unverified`, plus `httpStatus`, `verdict`, `url`, `hostname`, `securityLabel`, `accessibilityScore`, and `responseTimeMs` when available.
+
+```python
+detail = client.evaluations.get("eval_example")
+print(detail.amount_billed.amount)
+print(detail.zenture_summary)
+print(detail.sources)
+```
+
+Example response:
+
+```python
+{
+    "evaluation_id": "eval_example",
+    "status": "completed",
+    "score": 86.0,
+    "created_at": "2026-06-22T10:05:00Z",
+    "amount_billed": {"amount": "2.00", "unit": "credits"},
+    "zenture_summary": {
+        "public_api": "The answer is relevant but relies on unavailable sources."
+    },
+    "zenture_suggestion": {
+        "public_api": "Replace unavailable links with accessible primary sources."
+    },
+    "zenture_kpi_details": {
+        "public_api": {
+            "src_acces": {"value": 0, "analysis": "The cited URL returned 404."}
+        }
+    },
+    "results": [
+        {
+            "model_id": "public_api",
+            "kpi_key": "src_acces",
+            "value": 0,
+            "analysis": "The cited URL returned 404.",
+        }
+    ],
+    "sources": {
+        "public_api": [
+            {
+                "url": "https://example.com/market-update",
+                "status": "unavailable",
+                "retrievalStatus": "unavailable",
+                "httpStatus": 404,
+                "verdict": "unverifiable",
+            }
+        ]
+    },
 }
 ```
 
@@ -796,16 +885,16 @@ same cadence, do not poll faster than once per second per operation, and honor
 
 ## Account Reads
 
-### `client.billing.get()`
+### `client.wallet.get()`
 
-Route: `GET /v1/billing`
+Route: `GET /v1/wallet`
 
 ```python
 from zenture import Zenture
 
 with Zenture.from_env() as client:
-    billing = client.billing.get()
-    print(billing.plan, billing.status, billing.current_period_end)
+    wallet = client.wallet.get()
+    print(wallet.plan, wallet.status, wallet.credits_available.amount)
 ```
 
 Example response:
@@ -814,6 +903,7 @@ Example response:
 {
     "plan": "pro",
     "status": "active",
+    "credits_available": {"amount": "123.45", "unit": "credits"},
     "current_period_end": "2026-07-22T00:00:00Z",
 }
 ```

@@ -2,7 +2,7 @@
 
 The SDK exposes read-only helpers for account-adjacent status:
 
-- `client.billing.get()`
+- `client.wallet.get()`
 - `client.usage.get(scope="api")`
 - `client.usage.get(scope="all")`
 - `client.limits.get()`
@@ -11,19 +11,19 @@ These routes do not create chat, input-wizard, or evaluation work. They are
 useful for dashboards, health checks, and preflight decisions before starting a
 billable operation.
 
-## Billing
+## Wallet
 
 ```python
 from zenture import Zenture
 
 with Zenture.from_env() as client:
-    billing = client.billing.get()
-    print(billing.plan, billing.status, billing.current_period_end)
+    wallet = client.wallet.get()
+    print(wallet.plan, wallet.status, wallet.credits_available.amount)
 ```
 
-`billing.plan` and `billing.status` are safe public projections. The SDK does
-not expose internal billing ledgers, Stripe identifiers, price internals, or
-invoice payloads.
+`wallet.plan`, `wallet.status`, and `wallet.credits_available` are safe public
+projections. The SDK does not expose internal billing ledgers, Stripe
+identifiers, price internals, or invoice payloads.
 
 ## Usage
 
@@ -63,7 +63,7 @@ Async clients expose the same resources:
 from zenture import AsyncZenture
 
 async with AsyncZenture.from_env() as client:
-    billing = await client.billing.get()
+    wallet = await client.wallet.get()
     usage = await client.usage.get(scope="api")
     limits = await client.limits.get()
 ```

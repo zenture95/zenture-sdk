@@ -243,7 +243,6 @@ def test_mutation_request_models_required_fields_match_openapi() -> None:
 def test_phase_four_response_models_match_required_fields() -> None:
     from zenture._contract import (
         LimitsResponse,
-        PublicBillingResponse,
         PublicChatCollectionResponse,
         PublicChatMessagesResponse,
         PublicChatResponse,
@@ -251,6 +250,7 @@ def test_phase_four_response_models_match_required_fields() -> None:
         PublicEvaluationResponse,
         PublicModelListResponse,
         PublicUsageResponse,
+        PublicWalletResponse,
     )
 
     schemas = _schemas()
@@ -258,7 +258,7 @@ def test_phase_four_response_models_match_required_fields() -> None:
     model_pairs: dict[str, type[BaseModel]] = {
         "LimitsResponse": LimitsResponse,
         "PublicModelListResponse": PublicModelListResponse,
-        "PublicBillingResponse": PublicBillingResponse,
+        "PublicWalletResponse": PublicWalletResponse,
         "PublicChatCollectionResponse": PublicChatCollectionResponse,
         "PublicChatMessagesResponse": PublicChatMessagesResponse,
         "PublicChatResponse": PublicChatResponse,
@@ -276,11 +276,11 @@ def test_phase_four_response_models_validate_api_json() -> None:
     from zenture._contract import (
         LimitsResponse,
         ModelMode,
-        PublicBillingResponse,
         PublicChatCollectionResponse,
         PublicEvaluationCollectionResponse,
         PublicModelListResponse,
         PublicUsageResponse,
+        PublicWalletResponse,
     )
 
     models = PublicModelListResponse.model_validate(
@@ -315,7 +315,13 @@ def test_phase_four_response_models_validate_api_json() -> None:
     evaluation_collection = PublicEvaluationCollectionResponse.model_validate(
         {"evaluations": [{"evaluation_id": "eval_abc123", "status": "queued"}]}
     )
-    billing = PublicBillingResponse.model_validate({"plan": "pro", "status": "active"})
+    wallet = PublicWalletResponse.model_validate(
+        {
+            "plan": "pro",
+            "status": "active",
+            "credits_available": {"amount": "123.45", "unit": "credits"},
+        }
+    )
     usage = PublicUsageResponse.model_validate({"scope": "api", "operation_count": 3})
     limits = LimitsResponse.model_validate(
         {
@@ -337,7 +343,8 @@ def test_phase_four_response_models_validate_api_json() -> None:
     assert models.models[0].modes == (ModelMode.SINGLE, ModelMode.MULTI)
     assert chat_collection.chats[0].chat_id == "chat_abc123"
     assert evaluation_collection.evaluations[0].evaluation_id == "eval_abc123"
-    assert billing.plan == "pro"
+    assert wallet.plan == "pro"
+    assert wallet.credits_available.amount == "123.45"
     assert usage.operation_count == 3
     assert limits.routes["POST /v1/chat"].scopes == ("chat:create",)
 

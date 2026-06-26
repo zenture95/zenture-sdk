@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from zenture._resources import (
-    BillingResource,
     ChatResource,
     EvaluationsResource,
     HelloworldResource,
@@ -14,6 +13,7 @@ from zenture._resources import (
     ModelsResource,
     OperationsResource,
     UsageResource,
+    WalletResource,
 )
 from zenture._transport import SyncTransport
 from zenture.config import (
@@ -77,7 +77,7 @@ class Zenture:
         self.chat = ChatResource(self._transport)
         self.input_wizard = InputWizardResource(self._transport)
         self.evaluations = EvaluationsResource(self._transport)
-        self.billing = BillingResource(self._transport)
+        self.wallet = WalletResource(self._transport)
         self.usage = UsageResource(self._transport)
         self.limits = LimitsResource(self._transport)
         self.models = ModelsResource(self._transport)

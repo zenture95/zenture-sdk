@@ -51,6 +51,10 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Local user workspace for ad-hoc SDK experiments, payloads, responses, and notes.
+# Do not store real API tokens, production data, or customer data here.
+scratch/
+
 # Translations
 *.mo
 *.pot

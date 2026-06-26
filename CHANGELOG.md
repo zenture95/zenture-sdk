@@ -8,6 +8,15 @@ state.
 
 ## Unreleased
 
+- Added `client.wallet.get()` and `await client.wallet.get()` for the public
+  `GET /v1/wallet` account projection with `wallet:read` scope.
+- Removed the unpublished `client.billing.get()` mapping and `/v1/billing`
+  SDK surface in favor of wallet terminology before public release.
+- Added optional `chat.run(..., include_content=True)` and
+  `evaluations.run(..., include_detail=True)` attachments for common
+  chat-then-evaluate application flows.
+- Added an end-to-end chat evaluation smoke example with wallet, model
+  discovery, input wizard, chat, evaluation, and billed-amount summary output.
 - Synced the Public API OpenAPI artifact with pagination parameters for chats,
   chat messages, and evaluations.
 - Added `limit` and `cursor` support plus sync/async iterator helpers for chat

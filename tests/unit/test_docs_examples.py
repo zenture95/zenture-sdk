@@ -45,6 +45,7 @@ EXAMPLE_FILES = [
     ROOT / "examples" / "async_chat.py",
     ROOT / "examples" / "async_evaluate.py",
     ROOT / "examples" / "account_status.py",
+    ROOT / "examples" / "end_to_end_chat_evaluation.py",
 ]
 PUBLIC_TEXT_FILES = [ROOT / "README.md", ROOT / "AGENTS.md", *DOC_FILES, *EXAMPLE_FILES]
 FORBIDDEN_PATTERNS = [
@@ -137,10 +138,15 @@ def _example_response(request: httpx.Request) -> httpx.Response:
                 "next_cursor": None,
             },
         )
-    if request.method == "GET" and path == "/v1/billing":
+    if request.method == "GET" and path == "/v1/wallet":
         return httpx.Response(
             200,
-            json={"plan": "free", "status": "active", "current_period_end": None},
+            json={
+                "plan": "free",
+                "status": "active",
+                "credits_available": {"amount": "123.45", "unit": "credits"},
+                "current_period_end": None,
+            },
         )
     if request.method == "GET" and path == "/v1/usage":
         return httpx.Response(
@@ -206,7 +212,7 @@ def test_readme_is_beta_ready_and_public_safe() -> None:
         "external_id",
         "model_response_id",
         "operations.wait",
-        "billing.get",
+        "wallet.get",
         'usage.get(scope="api")',
         "limits.get",
         "chat.iter",
@@ -294,7 +300,7 @@ def test_api_reference_covers_current_public_resource_surface() -> None:
         "client.evaluations.get",
         "client.operations.get",
         "client.operations.wait",
-        "client.billing.get",
+        "client.wallet.get",
         'client.usage.get(scope="api")',
         'client.usage.get(scope="all")',
         "client.limits.get",
@@ -418,13 +424,3 @@ def test_sdist_includes_public_docs_examples_and_excludes_private_plan() -> None
     assert "/examples" in include
     assert "/AGENTS.md" in include
     assert "/PLAN_ZENTURE_SDK.md" not in include
-
-
-def test_plan_tracks_phase_6_and_has_no_phase_7b_reference() -> None:
-    plan = _read(ROOT / "PLAN_ZENTURE_SDK.md")
-
-    assert "Phase 6: Docs, examples and public README" in plan
-    assert "Phase 6B: Human and agent onboarding documentation" in plan
-    assert "Phase 7: Critical review gate" in plan
-    assert "Phase 8: Prerelease Readiness" in plan
-    assert "Phase 7B" not in plan

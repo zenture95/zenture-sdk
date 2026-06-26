@@ -1,4 +1,4 @@
-"""Read billing, usage, and public route limits."""
+"""Read wallet, usage, and public route limits."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from zenture import Zenture
 
 def main() -> None:
     with Zenture.from_env() as client:
-        billing = client.billing.get()
+        wallet = client.wallet.get()
         api_usage = client.usage.get(scope="api")
         limits = client.limits.get()
 
-        print(billing.plan, billing.status)
+        print(wallet.plan, wallet.status, wallet.credits_available.amount)
         print(api_usage.operation_count)
         print(limits.operation_statuses)
 

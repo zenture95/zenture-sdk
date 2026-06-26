@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self, cast
 
-from pydantic import AwareDatetime, Field, field_validator, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, field_validator, model_validator
 
 from zenture.models import SDKBaseModel
 
@@ -88,6 +88,13 @@ class PublicErrorEnvelope(SDKBaseModel):
     request_id: str = Field(pattern=r"^req_[a-f0-9]{32}$")
 
 
+class PublicAmountBilled(SDKBaseModel):
+    """Display credit amount charged for a completed public API call."""
+
+    amount: str = Field(pattern=r"^[0-9]+\.[0-9]{2}$")
+    unit: Literal["credits"] = "credits"
+
+
 class PublicOperationResult(SDKBaseModel):
     """Bounded safe-reference operation result.
 
@@ -98,6 +105,7 @@ class PublicOperationResult(SDKBaseModel):
     """
 
     result_type: PublicOperationResultType
+    amount_billed: PublicAmountBilled | None = None
     chat_id: str | None = Field(default=None, pattern=r"^chat_[A-Za-z0-9_-]{3,128}$")
     completed_at: AwareDatetime | None = None
     evaluation_id: str | None = Field(default=None, pattern=r"^eval_[A-Za-z0-9_-]{3,128}$")
@@ -124,7 +132,7 @@ class PublicOperationResult(SDKBaseModel):
                 projection = dict(cast("dict[str, Any]", nested))
                 projection.setdefault("result_type", key)
                 return projection
-        return value
+        return result
 
     @field_validator("model_response_ids", mode="before")
     @classmethod
@@ -252,6 +260,36 @@ class PublicChatMessagesResponse(SDKBaseModel):
         return _coerce_tuple(value)
 
 
+class PublicEvaluationKpiResult(SDKBaseModel):
+    """Bounded KPI result row returned by evaluation details."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True, protected_namespaces=())
+
+    model_id: str = Field(min_length=1, max_length=140)
+    kpi_key: str = Field(min_length=1, max_length=120)
+    value: int | float | None = None
+    analysis: str | None = Field(default=None, max_length=4000)
+
+
+class PublicEvaluationSourceResult(SDKBaseModel):
+    """Bounded source verification row returned by evaluation details."""
+
+    status: Literal["available", "limited", "unavailable", "unverified"]
+    retrievalStatus: Literal["available", "limited", "unavailable", "unverified"] | None = None
+    url: str | None = Field(default=None, max_length=2048)
+    originalUrl: str | None = Field(default=None, max_length=2048)
+    normalizedUrl: str | None = Field(default=None, max_length=2048)
+    resolvedUrl: str | None = Field(default=None, max_length=2048)
+    hostname: str | None = Field(default=None, max_length=255)
+    securityLabel: str | None = Field(default=None, max_length=40)
+    accessibilityScore: int | None = Field(default=None, ge=0, le=100)
+    httpStatus: int | None = Field(default=None, ge=100, le=599)
+    responseTimeMs: int | None = Field(default=None, ge=0)
+    author: str | None = Field(default=None, max_length=200)
+    publishedAt: str | None = Field(default=None, max_length=80)
+    verdict: str | None = Field(default=None, max_length=80)
+
+
 class PublicEvaluationResponse(SDKBaseModel):
     """Public evaluation detail response."""
 
@@ -259,11 +297,32 @@ class PublicEvaluationResponse(SDKBaseModel):
     status: str
     score: float | None = None
     created_at: AwareDatetime | None = None
+    amount_billed: PublicAmountBilled | None = None
+    zenture_summary: dict[str, str] | None = None
+    zenture_suggestion: dict[str, str] | None = None
+    zenture_kpi_details: dict[str, Any] | None = None
+    results: tuple[PublicEvaluationKpiResult, ...] | None = None
+    sources: dict[str, tuple[PublicEvaluationSourceResult, ...]] | None = None
 
     @field_validator("created_at", mode="before")
     @classmethod
     def _coerce_created_at(cls, value: object) -> object:
         return _coerce_aware_datetime(value)
+
+    @field_validator("results", mode="before")
+    @classmethod
+    def _coerce_results(cls, value: object) -> object:
+        return _coerce_tuple(value)
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _coerce_sources(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        return {
+            str(key): _coerce_tuple(items)
+            for key, items in cast("dict[str, object]", value).items()
+        }
 
 
 class PublicEvaluationCollectionResponse(SDKBaseModel):
@@ -278,11 +337,12 @@ class PublicEvaluationCollectionResponse(SDKBaseModel):
         return _coerce_tuple(value)
 
 
-class PublicBillingResponse(SDKBaseModel):
-    """Public billing status response."""
+class PublicWalletResponse(SDKBaseModel):
+    """Public wallet status response."""
 
     plan: str
     status: str
+    credits_available: PublicAmountBilled
     current_period_end: AwareDatetime | None = None
 
     @field_validator("current_period_end", mode="before")
@@ -411,6 +471,8 @@ class OperationRunResult(SDKBaseModel):
     status: OperationStatus
     result: PublicOperationResult | None = None
     error: PublicOperationError | None = None
+    chat_turn: PublicChatTurn | None = None
+    evaluation: PublicEvaluationResponse | None = None
     idempotency_key: str = Field(min_length=1, max_length=255)
     last_request_id: str | None = None
 

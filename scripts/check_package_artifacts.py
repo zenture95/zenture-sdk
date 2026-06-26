@@ -42,6 +42,7 @@ def _assert_sdist(path: Path) -> None:
         "CONTRIBUTING.md",
         "LICENSE",
         "NOTICE",
+        "THIRD_PARTY_NOTICES.md",
         "docs/pagination.md",
         "examples/pagination.py",
         "openapi/zenture-public-api-v1.openapi.json",

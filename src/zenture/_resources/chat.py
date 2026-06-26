@@ -68,6 +68,12 @@ def _initial_interval(
     return 1.0
 
 
+def _turn_by_id(turns: tuple[PublicChatTurn, ...], turn_id: str | None) -> PublicChatTurn | None:
+    if turn_id is None:
+        return None
+    return next((turn for turn in turns if turn.turn_id == turn_id), None)
+
+
 class ChatResource:
     """Synchronous wrapper for chat routes.
 
@@ -153,13 +159,16 @@ class ChatResource:
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
         poll_interval: float | None = None,
+        include_content: bool = False,
     ) -> OperationRunResult:
         """Create and poll a chat operation until it reaches a terminal status.
 
         The returned ``result`` contains the ``chat_id`` for follow-up turns and
         the ``turn_id`` plus ``model_response_id``/``model_response_ids`` for
-        evaluating the generated answer. For application retries, prefer a
-        stable ``idempotency_key`` from your own system.
+        evaluating the generated answer. Set ``include_content=True`` to attach
+        the matching public chat turn as ``chat_turn`` after the operation
+        succeeds. For application retries, prefer a stable ``idempotency_key``
+        from your own system.
         """
 
         key = idempotency_key or _generated_chat_idempotency_key()
@@ -188,7 +197,18 @@ class ChatResource:
                 operation_id=operation.operation_id,
                 idempotency_key=key,
             ) from None
-        return operation_run_result(operation=final_operation, idempotency_key=key)
+        run_result = operation_run_result(operation=final_operation, idempotency_key=key)
+        if (
+            not include_content
+            or run_result.result is None
+            or run_result.result.chat_id is None
+            or run_result.result.turn_id is None
+        ):
+            return run_result
+        messages = self.messages(run_result.result.chat_id)
+        return run_result.model_copy(
+            update={"chat_turn": _turn_by_id(messages.turns, run_result.result.turn_id)}
+        )
 
     def list(
         self,
@@ -349,12 +369,14 @@ class AsyncChatResource:
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
         poll_interval: float | None = None,
+        include_content: bool = False,
     ) -> OperationRunResult:
         """Create and poll a chat operation until it reaches a terminal status.
 
         The returned ``result`` contains ``chat_id`` for follow-up turns and
         ``turn_id`` plus ``model_response_id``/``model_response_ids`` for
-        evaluating the generated answer.
+        evaluating the generated answer. Set ``include_content=True`` to attach
+        the matching public chat turn as ``chat_turn`` after success.
         """
 
         key = idempotency_key or _generated_chat_idempotency_key()
@@ -383,7 +405,18 @@ class AsyncChatResource:
                 operation_id=operation.operation_id,
                 idempotency_key=key,
             ) from None
-        return operation_run_result(operation=final_operation, idempotency_key=key)
+        run_result = operation_run_result(operation=final_operation, idempotency_key=key)
+        if (
+            not include_content
+            or run_result.result is None
+            or run_result.result.chat_id is None
+            or run_result.result.turn_id is None
+        ):
+            return run_result
+        messages = await self.messages(run_result.result.chat_id)
+        return run_result.model_copy(
+            update={"chat_turn": _turn_by_id(messages.turns, run_result.result.turn_id)}
+        )
 
     async def list(
         self,

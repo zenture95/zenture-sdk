@@ -31,6 +31,18 @@ and `model_response_id`/`model_response_ids`. Use `chat_id` for follow-up turns
 and `model_response_id` for evaluating a zenture chat answer. For external
 evaluations, `result` contains an evaluation projection and no chat-history ids.
 
+Completed chat and evaluation operations include `amount_billed` when billing
+has been recorded:
+
+```python
+{
+    "amount": "4.41",
+    "unit": "credits",
+}
+```
+
+`amount` is the user-facing zenture credit amount with two decimal places.
+
 ## Timeout and Stop
 
 `timeout` is a total local polling budget, not an HTTP read timeout. Sync

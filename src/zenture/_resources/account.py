@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from zenture._contract import (
     LimitsResponse,
-    PublicBillingResponse,
     PublicUsageResponse,
+    PublicWalletResponse,
     UsageScope,
 )
 from zenture._resources._utils import parse_response
@@ -16,17 +16,17 @@ if TYPE_CHECKING:
     from zenture._transport import AsyncTransport, SyncTransport
 
 
-class BillingResource:
-    """Synchronous wrapper for billing read routes."""
+class WalletResource:
+    """Synchronous wrapper for wallet read routes."""
 
     def __init__(self, transport: SyncTransport) -> None:
         self._transport = transport
 
-    def get(self) -> PublicBillingResponse:
-        """Fetch public billing status."""
+    def get(self) -> PublicWalletResponse:
+        """Fetch public wallet status and available credits."""
 
-        payload = self._transport.request_json("GET", "/billing")
-        return parse_response(PublicBillingResponse, payload)
+        payload = self._transport.request_json("GET", "/wallet")
+        return parse_response(PublicWalletResponse, payload)
 
 
 class UsageResource:
@@ -55,17 +55,17 @@ class LimitsResource:
         return parse_response(LimitsResponse, payload)
 
 
-class AsyncBillingResource:
-    """Asynchronous wrapper for billing read routes."""
+class AsyncWalletResource:
+    """Asynchronous wrapper for wallet read routes."""
 
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
 
-    async def get(self) -> PublicBillingResponse:
-        """Fetch public billing status."""
+    async def get(self) -> PublicWalletResponse:
+        """Fetch public wallet status and available credits."""
 
-        payload = await self._transport.request_json("GET", "/billing")
-        return parse_response(PublicBillingResponse, payload)
+        payload = await self._transport.request_json("GET", "/wallet")
+        return parse_response(PublicWalletResponse, payload)
 
 
 class AsyncUsageResource:

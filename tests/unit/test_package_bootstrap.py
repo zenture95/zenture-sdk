@@ -44,16 +44,16 @@ def test_sdist_includes_openapi_artifact_for_contract_tests() -> None:
     assert "/PLAN_ZENTURE_SDK.md" not in sdist_includes
 
 
-def test_ci_enforces_coverage_gate_and_python_313() -> None:
-    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+def test_development_workflow_enforces_coverage_gate_and_python_313() -> None:
+    ci = Path(".github/workflows/development.yml").read_text(encoding="utf-8")
 
     assert '"3.13"' in ci
     assert "python -m coverage run -m pytest" in ci
     assert "python -m coverage report" in ci
 
 
-def test_package_artifact_and_install_smoke_scripts_are_wired_into_ci() -> None:
-    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+def test_package_artifact_and_install_smoke_scripts_are_wired_into_development_workflow() -> None:
+    ci = Path(".github/workflows/development.yml").read_text(encoding="utf-8")
 
     assert Path("scripts/check_package_artifacts.py").is_file()
     assert Path("scripts/smoke_install_wheel.py").is_file()

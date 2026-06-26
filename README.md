@@ -56,6 +56,22 @@ runbook for approved values. Local `localhost`, `127.0.0.1`, and `[::1]`
 origins are accepted for local debugging with test tokens. Never derive
 `ZENTURE_BASE_URL` or constructor `base_url` values from user input.
 
+## Local Scratch Workspace
+
+For ad-hoc local experiments, create a `scratch/` directory in the repository
+root:
+
+```bash
+mkdir -p scratch
+```
+
+Use it for temporary request payloads, response captures, throwaway scripts,
+and local notes while testing the SDK. The directory is ignored by Git and
+must not contain real API tokens, production data, customer data, or other
+secrets.
+
+Reproducible tests belong in `tests/`; reusable examples belong in `examples/`.
+
 ## API Documentation
 
 The public API documentation lives at
@@ -138,6 +154,8 @@ with Zenture.from_env() as client:
         timeout=120.0,
     )
     print(result.operation_id, result.status)
+    print(result.result.amount_billed)
+    print(result.result.chat_id, result.result.turn_id, result.result.model_response_id)
 ```
 
 Multi-model chat:
@@ -162,6 +180,7 @@ with Zenture.from_env() as client:
         timeout=120.0,
     )
     print(result.status)
+    print(result.result.amount_billed)
 ```
 
 Agentic chat mode is not part of Public V1. Do not document or add public
@@ -189,6 +208,7 @@ with Zenture.from_env() as client:
         idempotency_key=idempotency_key("case-123", "chat-turn-2", "v1"),
         timeout=120.0,
     )
+    print(follow_up.result.amount_billed)
     print(follow_up.result.turn_id, follow_up.result.model_response_id)
 ```
 
@@ -244,6 +264,11 @@ with Zenture.from_env() as client:
         timeout=120.0,
     )
     print(result.operation_id, result.status)
+    print(result.result.amount_billed)
+
+    detail = client.evaluations.get(result.result.evaluation_id)
+    print(detail.zenture_summary)
+    print(detail.sources)
 ```
 
 Internal zenture chat-answer evaluation uses the AI-answer `model_response_id`.
@@ -278,26 +303,46 @@ with Zenture.from_env() as client:
         idempotency_key=idempotency_key(model_response_id, "evaluate", "v1"),
         timeout=120.0,
     )
-    print(evaluation.status)
+    print(evaluation.result.evaluation_id, evaluation.status)
+    print(evaluation.result.amount_billed)
 ```
 
 Use `external_id` only as optional caller-side correlation. Use
 `idempotency_key` as the required retry-safety key for each mutating request.
 
+## End-to-End Chat Evaluation
+
+For a complete local smoke flow, use:
+
+```bash
+python3 examples/end_to_end_chat_evaluation.py
+```
+
+The script reads configuration from environment variables, calls `wallet.get()`,
+selects an available single-model chat model with a Haiku preference, runs
+`input_wizard`, chats, reads the generated turn, evaluates the answer, and
+prints a JSON summary with per-operation `amount_billed` plus `total_billed`.
+
+For smaller application code, `chat.run(..., include_content=True)` attaches
+the matching public chat turn as `result.chat_turn`, and
+`evaluations.run(..., include_detail=True)` attaches the public evaluation
+detail as `result.evaluation`. These flags are explicit so normal operation
+polling does not perform extra read requests.
+
 ## Account Reads
 
-Read billing, usage, and route limits without creating billable work:
+Read wallet, usage, and route limits without creating billable work:
 
 ```python
 from zenture import Zenture
 
 with Zenture.from_env() as client:
-    billing = client.billing.get()
+    wallet = client.wallet.get()
     api_usage = client.usage.get(scope="api")
     all_usage = client.usage.get(scope="all")
     limits = client.limits.get()
 
-    print(billing.plan, billing.status)
+    print(wallet.plan, wallet.status, wallet.credits_available.amount)
     print(api_usage.operation_count, all_usage.operation_count)
     print(limits.operation_statuses)
 ```

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from zenture._resources.account import (
-    AsyncBillingResource,
     AsyncLimitsResource,
     AsyncUsageResource,
-    BillingResource,
+    AsyncWalletResource,
     LimitsResource,
     UsageResource,
+    WalletResource,
 )
 from zenture._resources.chat import AsyncChatResource, ChatResource
 from zenture._resources.evaluations import AsyncEvaluationsResource, EvaluationsResource
@@ -18,7 +18,6 @@ from zenture._resources.models import AsyncModelsResource, ModelsResource
 from zenture._resources.operations import AsyncOperationsResource, OperationsResource
 
 __all__ = (
-    "AsyncBillingResource",
     "AsyncChatResource",
     "AsyncEvaluationsResource",
     "AsyncHelloworldResource",
@@ -27,7 +26,7 @@ __all__ = (
     "AsyncModelsResource",
     "AsyncOperationsResource",
     "AsyncUsageResource",
-    "BillingResource",
+    "AsyncWalletResource",
     "ChatResource",
     "EvaluationsResource",
     "HelloworldResource",
@@ -36,4 +35,5 @@ __all__ = (
     "ModelsResource",
     "OperationsResource",
     "UsageResource",
+    "WalletResource",
 )
