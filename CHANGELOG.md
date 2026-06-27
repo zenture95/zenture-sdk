@@ -10,6 +10,11 @@ state.
 
 No unreleased changes.
 
+## 1.0.0rc2 - 2026-06-27
+
+- Updated the README logo to use the public production-hosted zenture logo so
+  PyPI renders the project description correctly.
+
 ## 1.0.0rc1 - 2026-06-27
 
 - Added `client.wallet.get()` and `await client.wallet.get()` for the public

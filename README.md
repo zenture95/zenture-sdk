@@ -1,4 +1,4 @@
-<img src="docs/assets/zenture-logo.svg" alt="zenture logo" width="180">
+<img src="https://ai.zenture.app/logo.svg" alt="zenture logo" width="180">
 
 # The official zenture-sdk
 
