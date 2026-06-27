@@ -1,0 +1,10 @@
+# zenture-sdk ownership
+#
+* @zenture95
+
+/.github/ @zenture95
+/SECURITY.md @zenture95
+/PLAN_ZENTURE_SDK.md @zenture95
+/pyproject.toml @zenture95
+/src/ @zenture95
+/openapi/ @zenture95
