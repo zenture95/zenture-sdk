@@ -199,6 +199,8 @@ def _example_response(request: httpx.Request) -> httpx.Response:
 
 def test_readme_is_beta_ready_and_public_safe() -> None:
     text = _read(ROOT / "README.md")
+    assert '<img src="https://ai.zenture.app/logo.svg"' in text
+    assert "docs/assets/zenture-logo.svg" not in text
     required = [
         "pip install zenture-sdk",
         "Python 3.11",
