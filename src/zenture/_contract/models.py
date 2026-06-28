@@ -483,8 +483,9 @@ class EvaluateRequest(SDKBaseModel):
 
     Always send ``user_message`` and ``ai_answer``. For an existing zenture chat
     answer, include the answer's ``model_response_id`` and optionally
-    ``chat_id``/``turn_id``. For an external answer, omit zenture chat ids and
-    optionally include caller-owned ``external_id``/``metadata`` for
+    ``chat_id``/``turn_id``. If ``chat_id`` or ``turn_id`` is supplied,
+    ``model_response_id`` is required. For an external answer, omit zenture chat
+    ids and optionally include caller-owned ``external_id``/``metadata`` for
     correlation.
     """
 
@@ -495,6 +496,23 @@ class EvaluateRequest(SDKBaseModel):
     chat_id: str | None = Field(default=None, min_length=8, max_length=140)
     model_response_id: str | None = Field(default=None, min_length=1, max_length=140)
     turn_id: str | None = Field(default=None, min_length=1, max_length=140)
+
+    @model_validator(mode="after")
+    def _validate_evaluation_target(self) -> Self:
+        if self.model_response_id is not None and not _raw_optional_id(
+            self.model_response_id, prefix="response_"
+        ):
+            raise ValueError("model_response_id must reference a zenture chat response")
+        if (self.chat_id or self.turn_id) and not self.model_response_id:
+            raise ValueError("model_response_id is required when chat_id or turn_id is provided")
+        return self
+
+
+def _raw_optional_id(value: str | None, *, prefix: str) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    return raw.removeprefix(prefix)
 
 
 class InputWizardRequest(SDKBaseModel):

@@ -59,9 +59,11 @@ class EvaluationsResource:
     ) -> PublicOperationResponse:
         """Create an asynchronous evaluation operation.
 
-        Use ``model_response_id`` for an existing zenture chat answer. Without a
-        ``model_response_id``, the request is treated as an external
-        evaluation-only record and is not added to zenture chat history.
+        Use ``model_response_id`` for an existing zenture chat answer.
+        ``chat_id`` and ``turn_id`` are correlation fields and require
+        ``model_response_id``. Without zenture chat ids, the request is treated
+        as an external evaluation-only record and is not added to zenture chat
+        history.
 
         ``idempotency_key`` is caller-owned and required for retry safety. Reuse
         the same key only when retrying the same request body.
@@ -229,9 +231,11 @@ class AsyncEvaluationsResource:
         """Create an asynchronous evaluation operation.
 
         ``model_response_id`` selects the internal zenture chat-answer path.
-        Without it, the request creates an external evaluation-only record that
-        does not appear in normal chat history. ``idempotency_key`` is required
-        and must be stable across retries of the same body.
+        ``chat_id`` and ``turn_id`` are correlation fields and require
+        ``model_response_id``. Without zenture chat ids, the request creates an
+        external evaluation-only record that does not appear in normal chat
+        history. ``idempotency_key`` is required and must be stable across
+        retries of the same body.
         """
 
         body = EvaluateRequest(

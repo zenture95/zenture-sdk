@@ -292,7 +292,7 @@
             "type": "string"
           },
           "chat_id": {
-            "description": "Optional legacy/correlation-only chat id. Without model_response_id this does not create or mutate chat history.",
+            "description": "Optional internal zenture chat correlation id. Requires model_response_id when supplied. For external evaluations, omit chat_id, turn_id, and model_response_id.",
             "maxLength": 140,
             "minLength": 8,
             "type": "string"
@@ -310,13 +310,13 @@
             "type": "object"
           },
           "model_response_id": {
-            "description": "Optional legacy chat-target model response id. When supplied, the evaluation targets an existing owned zenture chat response.",
+            "description": "Optional internal zenture AI-answer response id. When supplied, the evaluation targets an existing owned zenture chat response. Required when chat_id or turn_id is supplied.",
             "maxLength": 140,
             "minLength": 1,
             "type": "string"
           },
           "turn_id": {
-            "description": "Optional legacy/correlation-only turn id. Without model_response_id this does not create or mutate chat history.",
+            "description": "Optional internal zenture chat turn correlation id. Requires model_response_id when supplied. For external evaluations, omit chat_id, turn_id, and model_response_id.",
             "maxLength": 140,
             "minLength": 1,
             "type": "string"
@@ -1174,7 +1174,7 @@
   "info": {
     "description": "Public zenture API contract for trusted server-side clients.",
     "title": "zenture Public API",
-    "version": "1.0.0-rc.2"
+    "version": "1.0.0-rc.3"
   },
   "openapi": "3.1.0",
   "paths": {

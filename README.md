@@ -238,6 +238,17 @@ with Zenture.from_env() as client:
 
 ## Evaluations
 
+There are two evaluation flows. Keep them separate:
+
+- **External evaluation:** the answer came from your application or another AI
+  system. Send `user_message`, `ai_answer`, optional `external_id`, and optional
+  `metadata`. Do not send `chat_id`, `turn_id`, or `model_response_id`.
+- **Internal zenture chat evaluation:** the answer came from a zenture chat
+  turn. Send `user_message`, `ai_answer`, and the AI-answer
+  `model_response_id`. `chat_id` and `turn_id` are optional correlation fields,
+  but if either is sent, `model_response_id` is required and must belong to the
+  same zenture user.
+
 External answer evaluation creates an external evaluation-only record. It does
 not add the submitted content to normal zenture chat history. If the answer
 contains sources, include them directly in `ai_answer` as Markdown links,
@@ -268,39 +279,55 @@ with Zenture.from_env() as client:
 ```
 
 Internal zenture chat-answer evaluation uses the AI-answer `model_response_id`.
-That id is not the user-message id.
+That id is not the user-message id. Passing only `chat_id` or `turn_id` is not
+enough; the API rejects that request with `422 validation_failed` before it
+creates an operation or checks credits.
+
+The SDK also validates that shape locally. `chat_id` or `turn_id` without
+`model_response_id` raises Pydantic `ValidationError` before an HTTP request is
+sent. A valid-looking target that the API user does not own raises
+`ZentureValidationError` from the API.
 
 ```python
 from zenture import Zenture
 from zenture.idempotency import idempotency_key
+from pydantic import ValidationError
+from zenture.errors import ZentureValidationError
 
 with Zenture.from_env() as client:
-    chat = client.chat.run(
-        message="Draft three customer-support next steps.",
-        mode="single",
-        idempotency_key=idempotency_key("case-456", "chat-turn-1", "v1"),
-        timeout=120.0,
-    )
-    chat_id = chat.result.chat_id
-    turn_id = chat.result.turn_id
-    model_response_id = chat.result.model_response_id or chat.result.model_response_ids[0]
+    try:
+        chat = client.chat.run(
+            message="Draft three customer-support next steps.",
+            mode="single",
+            idempotency_key=idempotency_key("case-456", "chat-turn-1", "v1"),
+            timeout=120.0,
+        )
+        chat_id = chat.result.chat_id
+        turn_id = chat.result.turn_id
+        model_response_id = chat.result.model_response_id or chat.result.model_response_ids[0]
 
-    turn = next(
-        item for item in client.chat.messages(chat_id).turns
-        if item.turn_id == turn_id
-    )
+        turn = next(
+            item for item in client.chat.messages(chat_id).turns
+            if item.turn_id == turn_id
+        )
 
-    evaluation = client.evaluations.run(
-        user_message=turn.user_message,
-        ai_answer=turn.model_answer,
-        chat_id=chat_id,
-        turn_id=turn_id,
-        model_response_id=model_response_id,
-        idempotency_key=idempotency_key(model_response_id, "evaluate", "v1"),
-        timeout=120.0,
-    )
-    print(evaluation.result.evaluation_id, evaluation.status)
-    print(evaluation.result.amount_billed)
+        evaluation = client.evaluations.run(
+            user_message=turn.user_message,
+            ai_answer=turn.model_answer,
+            chat_id=chat_id,
+            turn_id=turn_id,
+            model_response_id=model_response_id,
+            idempotency_key=idempotency_key(model_response_id, "evaluate", "v1"),
+            timeout=120.0,
+        )
+        print(evaluation.result.evaluation_id, evaluation.status)
+        print(evaluation.result.amount_billed)
+    except ValidationError:
+        # Local SDK validation, for example chat_id/turn_id without model_response_id.
+        handle_invalid_evaluation_target()
+    except ZentureValidationError as exc:
+        # Server-side validation, for example a model_response_id not owned by this user.
+        handle_api_validation_error(exc.status_code, exc.error_code, exc.request_id)
 ```
 
 Use `external_id` only as optional caller-side correlation. Use

@@ -112,18 +112,31 @@ Paginated read methods accept `limit` from `1` to `100` and optional opaque
 `cursor` values up to `200` characters. The API sorts paginated collections by
 `created_at desc`; `next_cursor is None` means there is no further page.
 
-Evaluation creation requires `user_message` and `ai_answer`. New external
-evaluations may include `external_id` and bounded `metadata` for caller-side
-correlation. `model_response_id` keeps the legacy zenture chat-backed target
-path; `chat_id` and `turn_id` are correlation-only unless a legacy
-`model_response_id` is supplied.
+Evaluation creation requires `user_message` and `ai_answer`. There are two
+target modes:
+
+- External evaluation: the answer came from your application or another AI
+  system. Send optional `external_id` and bounded `metadata` for caller-side
+  correlation. Omit `chat_id`, `turn_id`, and `model_response_id`.
+- Internal zenture chat evaluation: the answer came from a zenture chat turn.
+  Send the AI-answer `model_response_id`. `chat_id` and `turn_id` are optional
+  correlation fields, but if either is supplied, `model_response_id` is required
+  and must reference an owned zenture chat response.
 
 ## Evaluation Flows
 
 Use `model_response_id` when the answer came from zenture chat history. This is
 the AI-answer id, not the user-message id. The evaluation still sends the
 `user_message` and `ai_answer` text, and `model_response_id` binds the request to
-the existing owned zenture response.
+the existing owned zenture response. Requests with `chat_id` or `turn_id` but
+without `model_response_id` are rejected as `422 validation_failed` before an
+operation is created or credits are checked.
+
+In the Python SDK, that malformed local payload raises Pydantic
+`ValidationError` before the HTTP request is sent. If the payload shape is valid
+but the server rejects the target, for example because `model_response_id` does
+not belong to the authenticated user, the SDK raises `ZentureValidationError`
+with `error_code == "validation_failed"`.
 
 ```python
 from zenture import Zenture
