@@ -10,6 +10,13 @@ state.
 
 No unreleased changes.
 
+## 1.0.0rc3 - 2026-06-28
+
+- Clarified external vs. internal evaluation flows across SDK docs.
+- Added local SDK validation for internal evaluation target payloads.
+- Updated evaluation error handling docs for local `ValidationError` and API
+  `ZentureValidationError`.
+
 ## 1.0.0rc2 - 2026-06-27
 
 - Updated the README logo to use the public production-hosted zenture logo so

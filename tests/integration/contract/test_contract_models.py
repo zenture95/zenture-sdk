@@ -182,6 +182,16 @@ def test_mutation_request_models_are_strict_and_match_required_fields() -> None:
         external_id="customer-eval-123",
         metadata={"customer_id": "safe-correlation"},
     ).metadata == {"customer_id": "safe-correlation"}
+    assert (
+        EvaluateRequest(
+            user_message="question",
+            ai_answer="answer",
+            chat_id="chat_12345678",
+            turn_id="turn_123",
+            model_response_id="response_123",
+        ).model_response_id
+        == "response_123"
+    )
     assert InputWizardRequest(mode="prompt_improvement", prompt="make this better").mode == (
         "prompt_improvement"
     )
@@ -215,6 +225,22 @@ def test_mutation_request_models_are_strict_and_match_required_fields() -> None:
         ChatRequest.model_validate({"message": "hello", "mode": "agentic"})
     with pytest.raises(ValidationError):
         EvaluateRequest.model_validate({"user_message": "question"})
+    with pytest.raises(ValidationError):
+        EvaluateRequest.model_validate(
+            {
+                "user_message": "question",
+                "ai_answer": "answer",
+                "chat_id": "chat_12345678",
+            }
+        )
+    with pytest.raises(ValidationError):
+        EvaluateRequest.model_validate(
+            {
+                "user_message": "question",
+                "ai_answer": "answer",
+                "model_response_id": "response_",
+            }
+        )
     with pytest.raises(ValidationError):
         EvaluateRequest.model_validate(
             {

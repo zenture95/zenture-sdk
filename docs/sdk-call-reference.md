@@ -512,11 +512,26 @@ Evaluation always needs the pair that should be judged: `user_message` and
 
 For internal zenture chat answers, pass `model_response_id`. That is the
 AI-answer id, not the user-message id. `chat_id` and `turn_id` are useful
-correlation fields.
+correlation fields. If either `chat_id` or `turn_id` is provided,
+`model_response_id` is required and must reference an owned zenture chat
+response.
 
 For external answers, omit `chat_id`, `turn_id`, and `model_response_id`. Use
 optional `external_id` only as caller-side correlation. External evaluations are
 not added to normal zenture chat history.
+
+Invalid internal targets are rejected as `422 validation_failed` before zenture
+creates an operation or checks credits. A terminal failed evaluation operation
+means execution started and then failed; it should not be used to detect a
+malformed internal-vs-external payload.
+
+The SDK validates the most common internal/external mix-up locally: if
+`chat_id` or `turn_id` is supplied without `model_response_id`,
+`client.evaluations.create(...)` and `client.evaluations.run(...)` raise
+Pydantic `ValidationError` before sending an HTTP request. Server-side target
+validation, such as a `model_response_id` that does not belong to the API user,
+raises `ZentureValidationError` with `status_code == 422` and
+`error_code == "validation_failed"`.
 
 If the external answer contains sources, include them directly in `ai_answer`
 as Markdown links, footnotes, or plain URLs. The SDK does not require a separate
@@ -615,34 +630,40 @@ Route: `POST /v1/evaluate`, then `GET /v1/operations/{operation_id}`
 ```python
 from zenture import Zenture
 from zenture.idempotency import idempotency_key
+from pydantic import ValidationError
+from zenture.errors import ZentureValidationError
 
 with Zenture.from_env() as client:
-    chat = client.chat.run(
-        message="Draft three support next steps.",
-        mode="single",
-        idempotency_key=idempotency_key("case-456", "chat-turn-1", "v1"),
-    )
-    chat_id = chat.result.chat_id
-    turn_id = chat.result.turn_id
-    model_response_id = chat.result.model_response_id or chat.result.model_response_ids[0]
+    try:
+        chat = client.chat.run(
+            message="Draft three support next steps.",
+            mode="single",
+            idempotency_key=idempotency_key("case-456", "chat-turn-1", "v1"),
+        )
+        chat_id = chat.result.chat_id
+        turn_id = chat.result.turn_id
+        model_response_id = chat.result.model_response_id or chat.result.model_response_ids[0]
 
-    turn = next(
-        item for item in client.chat.messages(chat_id).turns
-        if item.turn_id == turn_id
-    )
+        turn = next(
+            item for item in client.chat.messages(chat_id).turns
+            if item.turn_id == turn_id
+        )
 
-    result = client.evaluations.run(
-        user_message=turn.user_message,
-        ai_answer=turn.model_answer,
-        chat_id=chat_id,
-        turn_id=turn_id,
-        model_response_id=model_response_id,
-        idempotency_key=idempotency_key(model_response_id, "evaluate", "v1"),
-        timeout=120.0,
-        include_detail=True,
-    )
-    print(result.result.evaluation_id, result.result.target_kind)
-    print(result.evaluation.status, result.evaluation.score)
+        result = client.evaluations.run(
+            user_message=turn.user_message,
+            ai_answer=turn.model_answer,
+            chat_id=chat_id,
+            turn_id=turn_id,
+            model_response_id=model_response_id,
+            idempotency_key=idempotency_key(model_response_id, "evaluate", "v1"),
+            timeout=120.0,
+            include_detail=True,
+        )
+        handle_evaluation_result(result.result.evaluation_id, result.result.target_kind)
+    except ValidationError:
+        handle_invalid_evaluation_target()
+    except ZentureValidationError as exc:
+        handle_api_validation_error(exc.status_code, exc.error_code, exc.request_id)
 ```
 
 Example response:
