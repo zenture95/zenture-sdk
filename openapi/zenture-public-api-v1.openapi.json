@@ -401,6 +401,22 @@
         ],
         "type": "string"
       },
+      "Phase1RunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "default": "fast",
+            "enum": [
+              "fast",
+              "standard",
+              "detailed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "PublicAmountBilled": {
         "additionalProperties": false,
         "properties": {
@@ -1032,6 +1048,57 @@
         ],
         "type": "object"
       },
+      "PublicPhase1RunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "enum": [
+              "accepted",
+              "replayed",
+              "conflict",
+              "rejected"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "jobs_ahead": {
+            "maximum": 50,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "public_run_id": {
+            "pattern": "^run:[A-Za-z0-9_.:-]{1,255}$",
+            "type": "string"
+          },
+          "queue_reason": {
+            "maxLength": 256,
+            "minLength": 1,
+            "nullable": true,
+            "type": "string"
+          },
+          "queued_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_run_id",
+          "status"
+        ],
+        "type": "object"
+      },
       "PublicUsageResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1335,8 +1402,25 @@
         "summary": "List Api Tokens",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 8000,
         "x-zenture-scopes": []
@@ -1507,8 +1591,25 @@
         "summary": "Create Api Token",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 8000,
         "x-zenture-scopes": []
@@ -1682,8 +1783,25 @@
         "summary": "Api Token Audit",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": []
@@ -1867,8 +1985,25 @@
         "summary": "Revoke Api Token",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 4000,
         "x-zenture-scopes": []
@@ -2052,8 +2187,25 @@
         "summary": "Rotate Api Token",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 8000,
         "x-zenture-scopes": []
@@ -2238,8 +2390,25 @@
         "summary": "Chat",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 32000,
         "x-zenture-scopes": [
@@ -2428,8 +2597,25 @@
         "summary": "Chats",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -2605,8 +2791,25 @@
         "summary": "Chat Detail",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -2805,8 +3008,25 @@
         "summary": "Chat Messages",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -3004,8 +3224,25 @@
         "summary": "Evaluate",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 96000,
         "x-zenture-scopes": [
@@ -3194,8 +3431,25 @@
         "summary": "Evaluations",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -3371,8 +3625,25 @@
         "summary": "Evaluation Detail",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -3532,8 +3803,25 @@
         "summary": "Helloworld",
         "x-zenture-auth-mode": "none",
         "x-zenture-backend-target": "gateway_owned:helloworld",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "public_read",
         "x-zenture-cost-class": "free_public",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": []
@@ -3762,8 +4050,25 @@
         "summary": "Input Wizard",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 24000,
         "x-zenture-scopes": [
@@ -3945,8 +4250,25 @@
         "summary": "Limits",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "gateway_owned:limits",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -4125,8 +4447,25 @@
         "summary": "Models",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -4313,11 +4652,438 @@
         "summary": "Operation",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": []
+      }
+    },
+    "/v1/runs": {
+      "post": {
+        "operationId": "postV1Runs",
+        "parameters": [
+          {
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Phase1RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPhase1RunResponse"
+                }
+              }
+            },
+            "description": "Phase-1 Run accepted",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "missing_idempotency_key": {
+                    "value": {
+                      "error": {
+                        "code": "missing_idempotency_key",
+                        "message": "Public gateway error"
+                      },
+                      "request_id": "req_00000000000000000000000000000000"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Start Phase1 Run",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-idempotency-required": true,
+        "x-zenture-max-body-bytes": 1024,
+        "x-zenture-scopes": [
+          "evaluation:run"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}": {
+      "get": {
+        "operationId": "getV1Run",
+        "parameters": [
+          {
+            "description": "Public Run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^run:[A-Za-z0-9_.:-]{1,255}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPhase1RunResponse"
+                }
+              }
+            },
+            "description": "Phase-1 Run status",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Get Phase1 Run",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-idempotency-required": false,
+        "x-zenture-max-body-bytes": 1024,
+        "x-zenture-scopes": [
+          "evaluation:read"
+        ]
       }
     },
     "/v1/usage": {
@@ -4492,8 +5258,25 @@
         "summary": "Usage",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -4658,8 +5441,25 @@
         "summary": "Wallet",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
