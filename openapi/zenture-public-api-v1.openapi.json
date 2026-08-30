@@ -183,6 +183,20 @@
         ],
         "type": "object"
       },
+      "CancelRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "default": "user_requested",
+            "enum": [
+              "user_requested"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "ChatRequest": {
         "additionalProperties": false,
         "oneOf": [
@@ -282,6 +296,25 @@
         ],
         "type": "object"
       },
+      "CreateRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "proposal_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "proposal_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_hash"
+        ],
+        "type": "object"
+      },
       "EvaluateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -331,6 +364,30 @@
         "required": [
           "user_message",
           "ai_answer"
+        ],
+        "type": "object"
+      },
+      "FindingAdjudication": {
+        "additionalProperties": false,
+        "properties": {
+          "finding_ref": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "confirmed",
+              "rejected",
+              "partially_valid",
+              "not_sure"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding_ref",
+          "outcome"
         ],
         "type": "object"
       },
@@ -401,6 +458,109 @@
         ],
         "type": "string"
       },
+      "PrepareRunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/RunArtifactDescriptor"
+          },
+          "profile": {
+            "default": "standard",
+            "enum": [
+              "fast",
+              "standard",
+              "detailed"
+            ],
+            "type": "string"
+          },
+          "task": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "artifact"
+        ],
+        "type": "object"
+      },
+      "PrepareRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "estimated_credits": {
+            "nullable": true,
+            "type": "string"
+          },
+          "expected_duration_seconds": {
+            "maximum": 86400,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "guest_slot_cost": {
+            "maximum": 1,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "inferred_work_type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maximum_credits": {
+            "nullable": true,
+            "type": "string"
+          },
+          "planned_checks": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "proposal_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "proposal_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "proposal_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "start_admissible": {
+            "type": "boolean"
+          },
+          "task_contract_summary": {
+            "$ref": "#/components/schemas/PublicTaskContractSummary"
+          },
+          "unavailable_checks": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_version",
+          "expires_at",
+          "inferred_work_type",
+          "task_contract_summary",
+          "expected_duration_seconds",
+          "start_admissible",
+          "proposal_hash"
+        ],
+        "type": "object"
+      },
       "PublicAmountBilled": {
         "additionalProperties": false,
         "properties": {
@@ -420,6 +580,34 @@
           "amount",
           "unit"
         ],
+        "type": "object"
+      },
+      "PublicCapabilityCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "available_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "limitation_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "unavailable_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          }
+        },
+        "required": [],
         "type": "object"
       },
       "PublicChatCollectionResponse": {
@@ -581,7 +769,29 @@
           "capacity_unavailable",
           "internal_error",
           "idempotency_conflict",
-          "operation_expired"
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
         ],
         "type": "string"
       },
@@ -1032,6 +1242,680 @@
         ],
         "type": "object"
       },
+      "PublicQueueProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "estimate_as_of": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "estimated_completion_seconds": {
+            "additionalProperties": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nullable": true,
+            "type": "object"
+          },
+          "estimated_start_seconds": {
+            "additionalProperties": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "nullable": true,
+            "type": "object"
+          },
+          "jobs_ahead": {
+            "maximum": 50,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "queue_reason": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_reason",
+          "jobs_ahead"
+        ],
+        "type": "object"
+      },
+      "PublicRunArtifactResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_ref": {
+            "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
+            "type": "string"
+          },
+          "byte_size": {
+            "maximum": 10485760,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "content_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "content_type": {
+            "maxLength": 127,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_ref",
+          "content_hash",
+          "byte_size",
+          "content_type"
+        ],
+        "type": "object"
+      },
+      "PublicRunCollectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "maxLength": 512,
+            "nullable": true,
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PublicRunListItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "has_more"
+        ],
+        "type": "object"
+      },
+      "PublicRunError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/PublicRunErrorCode"
+          },
+          "message": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "next_action": {
+            "maxLength": 128,
+            "nullable": true,
+            "type": "string"
+          },
+          "retryable": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "PublicRunErrorCode": {
+        "enum": [
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "type": "string"
+      },
+      "PublicRunErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/PublicRunError"
+          },
+          "request_id": {
+            "pattern": "^req_[a-f0-9]{32}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "PublicRunEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "estimated_completion_seconds": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "estimated_start_seconds": {
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "event_cursor": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._~-]+$",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "type": "string"
+          },
+          "jobs_ahead": {
+            "maximum": 50,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message_key": {
+            "pattern": "^[a-z][a-z0-9_.-]{0,127}$",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "queued",
+              "preparing",
+              "running",
+              "completed",
+              "degraded",
+              "failed",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "progress_percent": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "run_id": {
+            "pattern": "^run_[A-Za-z0-9_-]{3,128}$",
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "preparing",
+              "running",
+              "completed",
+              "degraded",
+              "failed",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "terminal_refs": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
+          "type": {
+            "const": "run.event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "event_id",
+          "run_id",
+          "sequence",
+          "phase",
+          "status"
+        ],
+        "type": "object"
+      },
+      "PublicRunEventsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/PublicRunEvent"
+            },
+            "type": "array"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "maxLength": 512,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "events",
+          "has_more"
+        ],
+        "type": "object"
+      },
+      "PublicRunEventsStream": {
+        "type": "string"
+      },
+      "PublicRunListItem": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decision": {
+            "nullable": true,
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "fast",
+              "standard",
+              "detailed"
+            ],
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^run_[A-Za-z0-9_-]{3,128}$",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_summary_ref": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "profile",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "PublicRunOutcomeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance_decision": {
+            "enum": [
+              "ready",
+              "revise",
+              "human_review",
+              "insufficient_evidence"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "artifact_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "billing_summary": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "cancellation_requested": {
+            "default": false,
+            "type": "boolean"
+          },
+          "capability_coverage": {
+            "$ref": "#/components/schemas/PublicCapabilityCoverage",
+            "nullable": true
+          },
+          "completed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event_cursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "family": {
+            "const": "knowledge",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "next_action": {
+            "maxLength": 128,
+            "nullable": true,
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "fast",
+              "standard",
+              "detailed"
+            ],
+            "type": "string"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/PublicQueueProjection",
+            "nullable": true
+          },
+          "reason_code": {
+            "maxLength": 128,
+            "nullable": true,
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^run_[A-Za-z0-9_-]{3,128}$",
+            "type": "string"
+          },
+          "run_insight_ref": {
+            "maxLength": 256,
+            "nullable": true,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "queued",
+              "running",
+              "waiting_for_dependency",
+              "partially_complete",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired",
+              "cancel_requested",
+              "succeeded",
+              "budget_exhausted"
+            ],
+            "type": "string"
+          },
+          "task_contract_summary": {
+            "$ref": "#/components/schemas/PublicTaskContractSummary",
+            "nullable": true
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usage_summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "work_type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "generation",
+          "family",
+          "work_type",
+          "profile",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "PublicRunResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance_decision": {
+            "enum": [
+              "ready",
+              "revise",
+              "human_review",
+              "insufficient_evidence"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "artifact_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "billing_summary": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "cancellation_requested": {
+            "default": false,
+            "type": "boolean"
+          },
+          "capability_coverage": {
+            "$ref": "#/components/schemas/PublicCapabilityCoverage",
+            "nullable": true
+          },
+          "completed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event_cursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "family": {
+            "const": "knowledge",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "next_action": {
+            "maxLength": 128,
+            "nullable": true,
+            "type": "string"
+          },
+          "profile": {
+            "enum": [
+              "fast",
+              "standard",
+              "detailed"
+            ],
+            "type": "string"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/PublicQueueProjection",
+            "nullable": true
+          },
+          "reason_code": {
+            "maxLength": 128,
+            "nullable": true,
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^run_[A-Za-z0-9_-]{3,128}$",
+            "type": "string"
+          },
+          "run_insight_ref": {
+            "maxLength": 256,
+            "nullable": true,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "queued",
+              "running",
+              "waiting_for_dependency",
+              "partially_complete",
+              "completed",
+              "failed",
+              "cancelled",
+              "expired",
+              "cancel_requested",
+              "succeeded",
+              "budget_exhausted"
+            ],
+            "type": "string"
+          },
+          "task_contract_summary": {
+            "$ref": "#/components/schemas/PublicTaskContractSummary",
+            "nullable": true
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usage_summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "work_type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "generation",
+          "family",
+          "work_type",
+          "profile",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "PublicSignedUploadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "upload_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "upload_url": {
+            "maxLength": 2048,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "PublicTaskContractSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "requirement_count": {
+            "default": 0,
+            "maximum": 128,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "summary_ref": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "work_type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_type",
+          "summary_ref"
+        ],
+        "type": "object"
+      },
       "PublicUsageResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1153,6 +2037,153 @@
           "rate_limit_per_minute"
         ],
         "title": "RouteLimitProjection",
+        "type": "object"
+      },
+      "RunArtifactDescriptor": {
+        "discriminator": {
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TextRunArtifact"
+          },
+          {
+            "$ref": "#/components/schemas/ZentureRefRunArtifact"
+          }
+        ]
+      },
+      "RunArtifactRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 10485760,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "content_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "file_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mime_type": {
+            "maxLength": 127,
+            "minLength": 1,
+            "type": "string"
+          },
+          "upload_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_id",
+          "file_name",
+          "mime_type",
+          "byte_size",
+          "content_hash"
+        ],
+        "type": "object"
+      },
+      "RunOutcomeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "edited_artifact_ref": {
+            "nullable": true,
+            "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
+            "type": "string"
+          },
+          "finding_adjudications": {
+            "items": {
+              "$ref": "#/components/schemas/FindingAdjudication"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "outcome": {
+            "enum": [
+              "used",
+              "edited",
+              "rejected",
+              "escalated",
+              "not_sure"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "SignedUploadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 10485760,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "content_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "file_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mime_type": {
+            "maxLength": 127,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name",
+          "mime_type",
+          "byte_size",
+          "content_hash"
+        ],
+        "type": "object"
+      },
+      "TextRunArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "text"
+          },
+          "value": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ZentureRefRunArtifact": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "zenture_ref"
+          },
+          "value": {
+            "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
         "type": "object"
       }
     },
@@ -1335,10 +2366,40 @@
         "summary": "List Api Tokens",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
-        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
-        "x-zenture-max-body-bytes": 8000,
+        "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": []
       },
       "post": {
@@ -1507,8 +2568,38 @@
         "summary": "Create Api Token",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 8000,
         "x-zenture-scopes": []
@@ -1682,8 +2773,38 @@
         "summary": "Api Token Audit",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": []
@@ -1867,8 +2988,38 @@
         "summary": "Revoke Api Token",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 4000,
         "x-zenture-scopes": []
@@ -2052,8 +3203,38 @@
         "summary": "Rotate Api Token",
         "x-zenture-auth-mode": "user_session",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "user_session",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 8000,
         "x-zenture-scopes": []
@@ -2238,8 +3419,38 @@
         "summary": "Chat",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 32000,
         "x-zenture-scopes": [
@@ -2428,8 +3639,38 @@
         "summary": "Chats",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -2605,8 +3846,38 @@
         "summary": "Chat Detail",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -2805,8 +4076,38 @@
         "summary": "Chat Messages",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -3004,8 +4305,38 @@
         "summary": "Evaluate",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 96000,
         "x-zenture-scopes": [
@@ -3194,8 +4525,38 @@
         "summary": "Evaluations",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -3371,8 +4732,38 @@
         "summary": "Evaluation Detail",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -3532,8 +4923,38 @@
         "summary": "Helloworld",
         "x-zenture-auth-mode": "none",
         "x-zenture-backend-target": "gateway_owned:helloworld",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "public_read",
         "x-zenture-cost-class": "free_public",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": []
@@ -3762,8 +5183,38 @@
         "summary": "Input Wizard",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 24000,
         "x-zenture-scopes": [
@@ -3945,8 +5396,38 @@
         "summary": "Limits",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "gateway_owned:limits",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -4125,8 +5606,38 @@
         "summary": "Models",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -4313,11 +5824,3114 @@
         "summary": "Operation",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": []
+      }
+    },
+    "/v1/run-artifacts": {
+      "post": {
+        "operationId": "postV1RunArtifacts",
+        "parameters": [
+          {
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunArtifactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRunArtifactResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Register Artifact",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": true,
+        "x-zenture-max-body-bytes": 16000,
+        "x-zenture-scopes": [
+          "evaluation:run"
+        ]
+      }
+    },
+    "/v1/run-artifacts/signed-upload": {
+      "post": {
+        "operationId": "postV1RunArtifactsSignedUpload",
+        "parameters": [
+          {
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSignedUploadResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Create Signed Upload",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": true,
+        "x-zenture-max-body-bytes": 16000,
+        "x-zenture-scopes": [
+          "evaluation:run"
+        ]
+      }
+    },
+    "/v1/runs": {
+      "get": {
+        "operationId": "getV1Runs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "decision",
+            "required": false,
+            "schema": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "profile",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_after",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "created_before",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRunCollectionResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "List Runs",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": false,
+        "x-zenture-max-body-bytes": 1024,
+        "x-zenture-scopes": [
+          "evaluation:read"
+        ]
+      },
+      "post": {
+        "operationId": "postV1Runs",
+        "parameters": [
+          {
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional transport wait hint. Values above 15 seconds are rejected; the hint never changes Run semantics.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "pattern": "^wait=[0-9]{1,2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRunResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Create Run",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": true,
+        "x-zenture-max-body-bytes": 8000,
+        "x-zenture-scopes": [
+          "evaluation:run"
+        ]
+      }
+    },
+    "/v1/runs/prepare": {
+      "post": {
+        "operationId": "postV1RunsPrepare",
+        "parameters": [
+          {
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional transport wait hint. Values above 15 seconds are rejected; the hint never changes Run semantics.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "pattern": "^wait=[0-9]{1,2}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrepareRunResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Prepare Run",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": true,
+        "x-zenture-max-body-bytes": 32000,
+        "x-zenture-scopes": [
+          "evaluation:run"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}": {
+      "get": {
+        "operationId": "getV1Run",
+        "parameters": [
+          {
+            "description": "Canonical public Run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^run_[A-Za-z0-9_-]{3,128}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "default": "summary",
+              "enum": [
+                "summary",
+                "full"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRunResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Get Run",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": false,
+        "x-zenture-max-body-bytes": 1024,
+        "x-zenture-scopes": [
+          "evaluation:read"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/cancel": {
+      "post": {
+        "operationId": "postV1RunCancel",
+        "parameters": [
+          {
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRunResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Cancel Run",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": true,
+        "x-zenture-max-body-bytes": 4000,
+        "x-zenture-scopes": [
+          "evaluation:run"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/events": {
+      "get": {
+        "operationId": "getV1RunEvents",
+        "parameters": [
+          {
+            "description": "Canonical public Run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^run_[A-Za-z0-9_-]{3,128}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRunEventsResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "List Run Events",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": false,
+        "x-zenture-max-body-bytes": 1024,
+        "x-zenture-scopes": [
+          "evaluation:read"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/events/stream": {
+      "get": {
+        "operationId": "getV1RunEventsStream",
+        "parameters": [
+          {
+            "description": "Canonical public Run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "pattern": "^run_[A-Za-z0-9_-]{3,128}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Public Run event stream.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Stream Run Events",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": false,
+        "x-zenture-max-body-bytes": 1024,
+        "x-zenture-scopes": [
+          "evaluation:read"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/outcome": {
+      "post": {
+        "operationId": "postV1RunOutcome",
+        "parameters": [
+          {
+            "description": "Required idempotency key for safe mutation retries. Use an ASCII-safe caller key such as [A-Za-z0-9._:-]+. Do not include prompts, answers, API tokens, PII, or raw request bodies.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunOutcomeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicRunOutcomeResponse"
+                }
+              }
+            },
+            "description": "Public Run response.",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimitLimit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimitRemaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimitReset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfter"
+              },
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            }
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicErrorEnvelope"
+                }
+              }
+            },
+            "description": "Public gateway error"
+          }
+        },
+        "security": [
+          {
+            "ApiTokenAuth": []
+          }
+        ],
+        "summary": "Record Run Outcome",
+        "x-zenture-auth-mode": "api_token",
+        "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
+        "x-zenture-cors-policy": "disabled",
+        "x-zenture-cost-class": "expensive_mutation",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired",
+          "proposal_expired",
+          "proposal_hash_mismatch",
+          "account_required",
+          "artifact_required",
+          "artifact_ambiguous",
+          "artifact_unavailable",
+          "artifact_not_found",
+          "artifact_expired",
+          "artifact_type_unsupported",
+          "artifact_processing_unavailable",
+          "prepare_rate_limited",
+          "prepare_capacity_unavailable",
+          "too_many_outstanding_runs",
+          "capacity_temporarily_unavailable",
+          "maintenance_active",
+          "engine_unavailable_timeout",
+          "capability_unavailable",
+          "run_not_found",
+          "run_terminal",
+          "cancel_conflict",
+          "budget_ceiling_exceeded",
+          "execution_failed"
+        ],
+        "x-zenture-idempotency-required": true,
+        "x-zenture-max-body-bytes": 8000,
+        "x-zenture-scopes": [
+          "evaluation:run"
+        ]
       }
     },
     "/v1/usage": {
@@ -4492,8 +9106,38 @@
         "summary": "Usage",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [
@@ -4658,8 +9302,38 @@
         "summary": "Wallet",
         "x-zenture-auth-mode": "api_token",
         "x-zenture-backend-target": "backend_forwarded",
+        "x-zenture-client-surface": "public_api",
         "x-zenture-cors-policy": "disabled",
         "x-zenture-cost-class": "polling_read",
+        "x-zenture-error-contract": {
+          "envelope": "#/components/schemas/PublicErrorEnvelope",
+          "terminal_statuses": [
+            "400",
+            "401",
+            "402",
+            "403",
+            "413",
+            "422",
+            "431"
+          ],
+          "transient_statuses": [
+            "429",
+            "503"
+          ]
+        },
+        "x-zenture-error-mappings": [
+          "unauthorized",
+          "forbidden",
+          "rate_limited",
+          "validation_failed",
+          "missing_idempotency_key",
+          "insufficient_credits",
+          "dependency_unavailable",
+          "capacity_unavailable",
+          "internal_error",
+          "idempotency_conflict",
+          "operation_expired"
+        ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
         "x-zenture-scopes": [

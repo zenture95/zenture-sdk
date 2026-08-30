@@ -12,6 +12,7 @@ from zenture._resources import (
     LimitsResource,
     ModelsResource,
     OperationsResource,
+    RunsResource,
     UsageResource,
     WalletResource,
 )
@@ -74,6 +75,7 @@ class Zenture:
             user_agent=user_agent,
         )
         self.operations = OperationsResource(self._transport)
+        self.runs = RunsResource(self._transport)
         self.chat = ChatResource(self._transport)
         self.input_wizard = InputWizardResource(self._transport)
         self.evaluations = EvaluationsResource(self._transport)

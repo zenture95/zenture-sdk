@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, cast
 
 import httpx
@@ -15,11 +16,18 @@ from zenture._transport.base import (
     has_idempotency_key,
     retry_delay,
 )
-from zenture.errors import ZentureResponseError, ZentureTransportError, error_from_response
+from zenture.errors import (
+    ZentureAPIError,
+    ZentureResponseError,
+    ZentureTransportError,
+    error_from_response,
+)
 from zenture.redaction import redact_text
 from zenture.retries import should_retry
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from zenture.config import ZentureConfig
 
 
@@ -96,6 +104,36 @@ class SyncTransport:
         except ValueError:
             response_error = ZentureResponseError("Public API response was not valid JSON.")
         raise response_error
+
+    @contextmanager
+    def stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        auth: bool = True,
+        headers: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> Iterator[httpx.Response]:
+        """Open one non-buffered public stream without mutation retries."""
+
+        request_headers = self._request_headers(auth=auth)
+        if headers is not None:
+            request_headers.update(headers)
+        try:
+            with self._client.stream(
+                method,
+                build_url(self._config, path),
+                headers=request_headers,
+                params=params,
+            ) as response:
+                if response.status_code >= 400:
+                    _raise_stream_error(response)
+                yield response
+        except (ZentureResponseError, ZentureAPIError):
+            raise
+        except httpx.HTTPError as exc:
+            raise ZentureTransportError(redact_text(str(exc))) from exc
 
     def _request(
         self,
@@ -202,3 +240,17 @@ class SyncTransport:
 
     def __exit__(self, *_exc_info: object) -> None:
         self.close()
+
+
+def _raise_stream_error(response: httpx.Response) -> None:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ZentureResponseError("Public API error response was not valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ZentureResponseError("Public API error response was not an object.")
+    raise error_from_response(
+        status_code=response.status_code,
+        payload=payload,
+        headers=response.headers,
+    )

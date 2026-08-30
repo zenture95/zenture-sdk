@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self, cast
+from uuid import UUID
 
 from pydantic import AwareDatetime, ConfigDict, Field, field_validator, model_validator
 
@@ -36,6 +37,28 @@ class PublicErrorCode(StrEnum):
     INTERNAL_ERROR = "internal_error"
     IDEMPOTENCY_CONFLICT = "idempotency_conflict"
     OPERATION_EXPIRED = "operation_expired"
+    PROPOSAL_EXPIRED = "proposal_expired"
+    PROPOSAL_HASH_MISMATCH = "proposal_hash_mismatch"
+    ACCOUNT_REQUIRED = "account_required"
+    ARTIFACT_REQUIRED = "artifact_required"
+    ARTIFACT_AMBIGUOUS = "artifact_ambiguous"
+    ARTIFACT_UNAVAILABLE = "artifact_unavailable"
+    ARTIFACT_NOT_FOUND = "artifact_not_found"
+    ARTIFACT_EXPIRED = "artifact_expired"
+    ARTIFACT_TYPE_UNSUPPORTED = "artifact_type_unsupported"
+    ARTIFACT_PROCESSING_UNAVAILABLE = "artifact_processing_unavailable"
+    PREPARE_RATE_LIMITED = "prepare_rate_limited"
+    PREPARE_CAPACITY_UNAVAILABLE = "prepare_capacity_unavailable"
+    TOO_MANY_OUTSTANDING_RUNS = "too_many_outstanding_runs"
+    CAPACITY_TEMPORARILY_UNAVAILABLE = "capacity_temporarily_unavailable"
+    MAINTENANCE_ACTIVE = "maintenance_active"
+    ENGINE_UNAVAILABLE_TIMEOUT = "engine_unavailable_timeout"
+    CAPABILITY_UNAVAILABLE = "capability_unavailable"
+    RUN_NOT_FOUND = "run_not_found"
+    RUN_TERMINAL = "run_terminal"
+    CANCEL_CONFLICT = "cancel_conflict"
+    BUDGET_CEILING_EXCEEDED = "budget_ceiling_exceeded"
+    EXECUTION_FAILED = "execution_failed"
 
 
 class ModelMode(StrEnum):
@@ -335,6 +358,315 @@ class PublicEvaluationCollectionResponse(SDKBaseModel):
     @field_validator("evaluations", mode="before")
     @classmethod
     def _coerce_evaluations(cls, value: object) -> object:
+        return _coerce_tuple(value)
+
+
+class RunProfile(StrEnum):
+    FAST = "fast"
+    STANDARD = "standard"
+    DETAILED = "detailed"
+
+
+class RunStatus(StrEnum):
+    CREATED = "created"
+    QUEUED = "queued"
+    RUNNING = "running"
+    WAITING_FOR_DEPENDENCY = "waiting_for_dependency"
+    PARTIALLY_COMPLETE = "partially_complete"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    CANCEL_REQUESTED = "cancel_requested"
+    SUCCEEDED = "succeeded"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+
+
+class PublicDecision(StrEnum):
+    READY = "ready"
+    REVISE = "revise"
+    HUMAN_REVIEW = "human_review"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+
+
+class RunTextArtifact(SDKBaseModel):
+    type: Literal["text"]
+    value: str = Field(min_length=1, max_length=10 * 1024 * 1024)
+
+
+class RunReferenceArtifact(SDKBaseModel):
+    type: Literal["zenture_ref"]
+    value: str = Field(pattern=r"^art_[A-Za-z0-9_.:-]{3,128}$")
+
+
+RunArtifact = Annotated[RunTextArtifact | RunReferenceArtifact, Field(discriminator="type")]
+
+
+class ArtifactUploadRequest(SDKBaseModel):
+    file_name: str = Field(min_length=1, max_length=255)
+    mime_type: str = Field(min_length=1, max_length=127)
+    byte_size: int = Field(ge=1, le=10 * 1024 * 1024)
+    content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    upload_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class ArtifactUploadResponse(SDKBaseModel):
+    upload_id: str | None = Field(default=None, min_length=1, max_length=128)
+    artifact_ref: str | None = Field(default=None, pattern=r"^art_[A-Za-z0-9_.:-]{3,128}$")
+    content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    byte_size: int = Field(ge=1, le=10 * 1024 * 1024)
+    content_type: str = Field(min_length=1, max_length=127)
+    expires_at: AwareDatetime | None = None
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def _expires_at(cls, value: object) -> object:
+        return _coerce_aware_datetime(value)
+
+
+class SignedUploadResponse(SDKBaseModel):
+    upload_id: str = Field(min_length=1, max_length=128)
+    expires_at: AwareDatetime
+    upload_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def _expires_at(cls, value: object) -> object:
+        return _coerce_aware_datetime(value)
+
+
+class PrepareKnowledgeRunRequest(SDKBaseModel):
+    task: str = Field(min_length=1, max_length=64 * 1024)
+    artifact: RunArtifact
+    profile: RunProfile = RunProfile.STANDARD
+
+    @field_validator("task")
+    @classmethod
+    def _task(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("task must not be blank")
+        return value
+
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _profile(cls, value: object) -> object:
+        return RunProfile(value) if isinstance(value, str) else value
+
+
+class CreateRunRequest(SDKBaseModel):
+    proposal_id: UUID
+    proposal_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("proposal_id", mode="before")
+    @classmethod
+    def _proposal_id(cls, value: object) -> object:
+        if isinstance(value, UUID):
+            return value
+        return UUID(str(value))
+
+
+class RecordRunOutcomeRequest(SDKBaseModel):
+    outcome: Literal["used", "edited", "rejected", "escalated", "not_sure"]
+    outcome_ref: str | None = Field(default=None, max_length=256, pattern=r"^[A-Za-z0-9_:/.-]{1,256}$")
+
+
+class PublicTaskContractSummary(SDKBaseModel):
+    work_type: str = Field(min_length=1, max_length=64)
+    summary_ref: str = Field(min_length=1, max_length=256)
+    requirement_count: int = Field(ge=0, le=128)
+
+
+class PrepareKnowledgeRunResponse(SDKBaseModel):
+    proposal_id: UUID
+    proposal_version: int = Field(ge=1)
+    expires_at: AwareDatetime
+    inferred_work_type: str = Field(min_length=1, max_length=64)
+    task_contract_summary: PublicTaskContractSummary
+    planned_checks: tuple[str, ...] = Field(default_factory=tuple, max_length=64)
+    unavailable_checks: tuple[str, ...] = Field(default_factory=tuple, max_length=64)
+    expected_duration_seconds: int = Field(ge=1, le=86_400)
+    estimated_credits: str | None = None
+    maximum_credits: str | None = None
+    guest_slot_cost: int | None = Field(default=None, ge=0, le=1)
+    start_admissible: bool
+    proposal_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("proposal_id", mode="before")
+    @classmethod
+    def _proposal_id(cls, value: object) -> object:
+        if isinstance(value, UUID):
+            return value
+        return UUID(str(value))
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def _expires_at(cls, value: object) -> object:
+        return _coerce_aware_datetime(value)
+
+    @field_validator("planned_checks", "unavailable_checks", mode="before")
+    @classmethod
+    def _checks(cls, value: object) -> object:
+        return _coerce_tuple(value)
+
+
+class PublicCapabilityCoverage(SDKBaseModel):
+    available_refs: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
+    unavailable_refs: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
+    limitation_refs: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
+
+    @field_validator("available_refs", "unavailable_refs", "limitation_refs", mode="before")
+    @classmethod
+    def _refs(cls, value: object) -> object:
+        return _coerce_tuple(value)
+
+
+class PublicQueueProjection(SDKBaseModel):
+    queue_reason: str = Field(min_length=1, max_length=128)
+    jobs_ahead: int = Field(ge=0, le=50)
+    estimated_start_seconds: dict[str, int] | None = None
+    estimated_completion_seconds: dict[str, int] | None = None
+    estimate_as_of: AwareDatetime | None = None
+
+    @field_validator("estimate_as_of", mode="before")
+    @classmethod
+    def _estimate_timestamp(cls, value: object) -> object:
+        return _coerce_aware_datetime(value)
+
+
+class PublicRunResponse(SDKBaseModel):
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    generation: int = Field(ge=1)
+    family: Literal["knowledge"] = "knowledge"
+    work_type: str = Field(min_length=1, max_length=64)
+    profile: RunProfile
+    status: RunStatus
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    started_at: AwareDatetime | None = None
+    completed_at: AwareDatetime | None = None
+    queue: PublicQueueProjection | None = None
+    task_contract_summary: PublicTaskContractSummary | None = None
+    capability_coverage: PublicCapabilityCoverage | None = None
+    acceptance_decision: PublicDecision | None = None
+    reason_code: str | None = Field(default=None, max_length=128)
+    next_action: str | None = Field(default=None, max_length=128)
+    run_insight_ref: str | None = Field(default=None, max_length=256)
+    artifact_refs: tuple[str, ...] = Field(default_factory=tuple, max_length=16)
+    usage_summary: dict[str, int] = Field(default_factory=dict, max_length=8)
+    billing_summary: dict[str, str] = Field(default_factory=dict, max_length=8)
+    limitations: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
+    cancellation_requested: bool = False
+    event_cursor: str | None = None
+
+    @field_validator(
+        "created_at", "updated_at", "started_at", "completed_at", mode="before"
+    )
+    @classmethod
+    def _timestamps(cls, value: object) -> object:
+        return _coerce_aware_datetime(value)
+
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _profile(cls, value: object) -> object:
+        return RunProfile(value) if isinstance(value, str) else value
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _status(cls, value: object) -> object:
+        return RunStatus(value) if isinstance(value, str) else value
+
+    @field_validator("artifact_refs", "limitations", mode="before")
+    @classmethod
+    def _tuples(cls, value: object) -> object:
+        return _coerce_tuple(value)
+
+
+class PublicRunListItem(SDKBaseModel):
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    status: RunStatus
+    decision: PublicDecision | None = None
+    task_summary_ref: str | None = None
+    profile: RunProfile
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def _timestamps(cls, value: object) -> object:
+        return _coerce_aware_datetime(value)
+
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _profile(cls, value: object) -> object:
+        return RunProfile(value) if isinstance(value, str) else value
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _status(cls, value: object) -> object:
+        return RunStatus(value) if isinstance(value, str) else value
+
+
+class ListRunsResponse(SDKBaseModel):
+    runs: tuple[PublicRunListItem, ...]
+    has_more: bool
+    next_cursor: str | None = None
+
+    @field_validator("runs", mode="before")
+    @classmethod
+    def _runs(cls, value: object) -> object:
+        return _coerce_tuple(value)
+
+
+class PublicRunEvent(SDKBaseModel):
+    type: Literal["run.event"]
+    event_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    sequence: int = Field(ge=0)
+    phase: Literal["queued", "preparing", "running", "completed", "degraded", "failed", "cancelled"]
+    status: Literal["queued", "preparing", "running", "completed", "degraded", "failed", "cancelled"]
+    message_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9_.-]{0,127}$")
+    progress_percent: int | None = Field(default=None, ge=0, le=100)
+    jobs_ahead: int | None = Field(default=None, ge=0, le=50)
+    estimated_start_seconds: dict[str, int] | None = None
+    estimated_completion_seconds: dict[str, int] | None = None
+    terminal_refs: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
+    event_cursor: str = Field(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9._~-]+$")
+
+    @field_validator("terminal_refs", mode="before")
+    @classmethod
+    def _terminal_refs(cls, value: object) -> object:
+        return _coerce_tuple(value)
+
+
+class PublicRunHeartbeat(SDKBaseModel):
+    type: Literal["run.heartbeat"]
+    event_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    sequence: int = Field(ge=0)
+
+
+class PublicRunStreamError(SDKBaseModel):
+    type: Literal["run.error"]
+    event_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    sequence: int = Field(ge=0)
+    code: str = Field(min_length=1, max_length=128, pattern=r"^[a-z0-9_.:-]+$")
+    message: str = Field(min_length=1, max_length=512)
+    retryable: bool
+    terminal: bool
+
+
+PublicRunStreamMessage = PublicRunEvent | PublicRunHeartbeat | PublicRunStreamError
+
+
+class ListRunEventsResponse(SDKBaseModel):
+    events: tuple[PublicRunEvent, ...]
+    has_more: bool
+    next_cursor: str | None = None
+
+    @field_validator("events", mode="before")
+    @classmethod
+    def _events(cls, value: object) -> object:
         return _coerce_tuple(value)
 
 

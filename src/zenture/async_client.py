@@ -12,6 +12,7 @@ from zenture._resources import (
     AsyncLimitsResource,
     AsyncModelsResource,
     AsyncOperationsResource,
+    AsyncRunsResource,
     AsyncUsageResource,
     AsyncWalletResource,
 )
@@ -74,6 +75,7 @@ class AsyncZenture:
             user_agent=user_agent,
         )
         self.operations = AsyncOperationsResource(self._transport)
+        self.runs = AsyncRunsResource(self._transport)
         self.chat = AsyncChatResource(self._transport)
         self.input_wizard = AsyncInputWizardResource(self._transport)
         self.evaluations = AsyncEvaluationsResource(self._transport)
