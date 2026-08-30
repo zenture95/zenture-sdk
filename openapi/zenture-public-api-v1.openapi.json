@@ -2052,43 +2052,6 @@
           }
         ]
       },
-      "RunArtifactRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "byte_size": {
-            "maximum": 10485760,
-            "minimum": 1,
-            "type": "integer"
-          },
-          "content_hash": {
-            "pattern": "^[a-f0-9]{64}$",
-            "type": "string"
-          },
-          "file_name": {
-            "maxLength": 255,
-            "minLength": 1,
-            "type": "string"
-          },
-          "mime_type": {
-            "maxLength": 127,
-            "minLength": 1,
-            "type": "string"
-          },
-          "upload_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "upload_id",
-          "file_name",
-          "mime_type",
-          "byte_size",
-          "content_hash"
-        ],
-        "type": "object"
-      },
       "RunOutcomeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5875,13 +5838,96 @@
               "minLength": 1,
               "type": "string"
             }
+          },
+          {
+            "description": "Short-lived upload intent returned by signed-upload; required for binary ingress.",
+            "in": "header",
+            "name": "X-Upload-ID",
+            "required": true,
+            "schema": {
+              "pattern": "^upload_[A-Za-z0-9_-]{8,128}$",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RunArtifactRequest"
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "application/pdf": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "application/vnd.ms-excel": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "application/yaml": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/svg+xml": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/markdown": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/plain": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "text/yaml": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
               }
             }
           },
@@ -6155,7 +6201,7 @@
           "execution_failed"
         ],
         "x-zenture-idempotency-required": true,
-        "x-zenture-max-body-bytes": 16000,
+        "x-zenture-max-body-bytes": 10485760,
         "x-zenture-scopes": [
           "evaluation:run"
         ]

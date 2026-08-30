@@ -87,6 +87,7 @@ class SyncTransport:
         headers: dict[str, str] | None = None,
         json: object | None = None,
         params: dict[str, str] | None = None,
+        content: bytes | None = None,
     ) -> object:
         """Request a JSON response and map public API errors."""
 
@@ -97,6 +98,7 @@ class SyncTransport:
             headers=headers,
             json=json,
             params=params,
+            content=content,
         )
         response_error: ZentureResponseError | None = None
         try:
@@ -144,6 +146,7 @@ class SyncTransport:
         headers: dict[str, str] | None,
         json: object | None,
         params: dict[str, str] | None,
+        content: bytes | None = None,
     ) -> httpx.Response:
         request_headers = self._request_headers(auth=auth)
         if headers is not None:
@@ -155,12 +158,15 @@ class SyncTransport:
             response: httpx.Response | None = None
             transport_error: ZentureTransportError | None = None
             try:
+                request_kwargs: dict[str, object] = {"headers": request_headers, "params": params}
+                if content is None:
+                    request_kwargs["json"] = json
+                else:
+                    request_kwargs["content"] = content
                 response = self._client.request(
                     method,
                     build_url(self._config, path),
-                    headers=request_headers,
-                    json=json,
-                    params=params,
+                    **request_kwargs,
                 )
             except httpx.HTTPError as exc:
                 decision = should_retry(

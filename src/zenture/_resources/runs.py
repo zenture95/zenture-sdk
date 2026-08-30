@@ -246,22 +246,31 @@ class RunsResource:
         upload_id: str,
         file_name: str,
         mime_type: str,
-        byte_size: int,
+        content: bytes,
         content_hash: str,
         idempotency_key: str,
     ) -> ArtifactUploadResponse:
-        body = ArtifactUploadRequest(
+        if not isinstance(content, bytes) or not content:
+            raise ValueError("content must be non-empty bytes")
+        ArtifactUploadRequest(
             upload_id=upload_id,
             file_name=file_name,
             mime_type=mime_type,
-            byte_size=byte_size,
+            byte_size=len(content),
             content_hash=content_hash,
+        )
+        headers = idempotency_headers(idempotency_key)
+        headers.update(
+            {
+                "Content-Type": mime_type,
+                "X-Upload-ID": upload_id,
+            }
         )
         payload = self._transport.request_json(
             "POST",
             "/run-artifacts",
-            headers=idempotency_headers(idempotency_key),
-            json=body.model_dump(mode="json"),
+            headers=headers,
+            content=content,
         )
         return parse_response(ArtifactUploadResponse, payload)
 

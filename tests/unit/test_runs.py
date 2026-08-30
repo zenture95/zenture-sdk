@@ -101,6 +101,41 @@ data: {\"type\":\"run.heartbeat\",\"event_id\":\"heartbeat_aaa\",\"run_id\":\"ru
     client.close()
 
 
+def test_sync_attach_artifact_sends_bytes_with_upload_intent() -> None:
+    content = b"%PDF-1.7\nbytes"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/run-artifacts"
+        assert request.headers["content-type"] == "application/pdf"
+        assert request.headers["x-upload-id"] == "upload_abcdefgh"
+        assert request.content == content
+        return httpx.Response(
+            201,
+            json={
+                "artifact_ref": "art_abcdefgh",
+                "content_hash": "a" * 64,
+                "byte_size": len(content),
+                "content_type": "application/pdf",
+            },
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    artifact = client.runs.attach_artifact(
+        upload_id="upload_abcdefgh",
+        file_name="answer.pdf",
+        mime_type="application/pdf",
+        content=content,
+        content_hash="a" * 64,
+        idempotency_key="artifact-1",
+    )
+
+    assert artifact.artifact_ref == "art_abcdefgh"
+    client.close()
+
+
 @pytest.mark.asyncio
 async def test_async_run_resources_match_sync_event_surface() -> None:
     stream = b"event: run.event\ndata: {\"type\":\"run.event\",\"event_id\":\"event_aaaaaaaa\",\"run_id\":\"run_33333333333343338333333333333333\",\"sequence\":1,\"phase\":\"completed\",\"status\":\"completed\",\"message_key\":\"run.status.completed\",\"event_cursor\":\"cursor_aaa\"}\n\n"
