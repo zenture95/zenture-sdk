@@ -31,8 +31,6 @@ The committed OpenAPI artifact remains the contract source of truth; this file i
 | `GET` | `/v1/limits` | `200` | `client.limits.get()` | `LimitsResponse` |
 | `GET` | `/v1/models` | `200` | `client.models.list(mode=None | "single" | "multi")` | `PublicModelListResponse` |
 | `GET` | `/v1/operations/{operation_id}` | `200` | `client.operations.get(...)`, `client.operations.wait(...)` | `PublicOperationResponse` |
-| `POST` | `/v1/runs` | `202` | `httpx` direct call | `PublicPhase1RunResponse` |
-| `GET` | `/v1/runs/{run_id}` | `200` | `httpx` direct call | `PublicPhase1RunResponse` |
 | `GET` | `/v1/usage` | `200` | `client.usage.get(...)` | `PublicUsageResponse` |
 | `GET` | `/v1/wallet` | `200` | `client.wallet.get()` | `PublicWalletResponse` |
 
@@ -566,74 +564,6 @@ Schema: `PublicOperationResponse`
   "status": "succeeded",
   "result": null,
   "error": null
-}
-```
-
-### `POST /v1/runs`
-
-SDK surface: `httpx` direct call
-
-SDK model: `PublicPhase1RunResponse`
-
-Auth mode: `api_token`
-
-Scopes: `evaluation:run`
-
-Idempotency: `required`
-
-Request body schema: `Phase1RunRequest`
-
-Request body example:
-
-```json
-{
-  "profile": "fast"
-}
-```
-
-Response `202` as `application/json`:
-
-Schema: `PublicPhase1RunResponse`
-
-```json
-{
-  "disposition": "accepted",
-  "generation": null,
-  "jobs_ahead": null,
-  "public_run_id": "example",
-  "queue_reason": null,
-  "queued_at": null,
-  "status": "active"
-}
-```
-
-### `GET /v1/runs/{run_id}`
-
-SDK surface: `httpx` direct call
-
-SDK model: `PublicPhase1RunResponse`
-
-Auth mode: `api_token`
-
-Scopes: `evaluation:read`
-
-Idempotency: `not required`
-
-Request body: none
-
-Response `200` as `application/json`:
-
-Schema: `PublicPhase1RunResponse`
-
-```json
-{
-  "disposition": "accepted",
-  "generation": null,
-  "jobs_ahead": null,
-  "public_run_id": "example",
-  "queue_reason": null,
-  "queued_at": null,
-  "status": "active"
 }
 ```
 
