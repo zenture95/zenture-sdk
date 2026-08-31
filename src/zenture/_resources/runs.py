@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from zenture._contract import (
@@ -28,10 +29,15 @@ from zenture._resources._utils import (
     parse_response,
     path_segment,
 )
-from zenture.errors import ZenturePollingStoppedError, ZenturePollingTimeoutError
+from zenture.errors import (
+    ZentureAPIError,
+    ZenturePollingStoppedError,
+    ZenturePollingTimeoutError,
+    ZentureTransportError,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
     from datetime import datetime
 
     from zenture._transport import SyncTransport
@@ -46,12 +52,108 @@ _TERMINAL_STATUSES = frozenset(
         RunStatus.BUDGET_EXHAUSTED,
     }
 )
+_TERMINAL_STREAM_STATUSES = frozenset({"completed", "failed", "cancelled"})
+_RETRYABLE_STREAM_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+_RETRYABLE_STREAM_ERROR_CODES = frozenset(
+    {"capacity_unavailable", "dependency_unavailable", "internal_error", "rate_limited"}
+)
+_MAX_STREAM_CURSOR_CYCLES = 3
 
 
 def _is_terminal_status(status: RunStatus) -> bool:
     """Return whether a public Run status is terminal."""
 
     return status in _TERMINAL_STATUSES
+
+
+@dataclass
+class _RunEventStreamState:
+    """Shared sync/async state for one reconnecting Run event stream."""
+
+    cursor: str | None
+    initial_interval: float
+    max_interval: float
+    seen_event_ids: set[str] = field(default_factory=set)
+    seen_event_sequences: set[int] = field(default_factory=set)
+    no_progress_cycles: int = 0
+    reconnect_interval: float = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.reconnect_interval = max(0.0, self.initial_interval)
+
+    def accept(self, message: PublicRunStreamMessage) -> tuple[bool, bool]:
+        """Record a message and return ``(emit, cursor_progressed)``."""
+
+        if isinstance(message, PublicRunEvent):
+            if (
+                message.event_id in self.seen_event_ids
+                or message.sequence in self.seen_event_sequences
+            ):
+                return False, False
+            previous_cursor = self.cursor
+            self.seen_event_ids.add(message.event_id)
+            self.seen_event_sequences.add(message.sequence)
+            self.cursor = message.event_cursor
+            return True, self.cursor != previous_cursor
+
+        if isinstance(message, (PublicRunHeartbeat, PublicRunStreamError)):
+            if message.event_id in self.seen_event_ids:
+                return False, False
+            self.seen_event_ids.add(message.event_id)
+            return True, False
+
+        return False, False
+
+    def finish_stream(self, *, progressed: bool) -> None:
+        """Update reconnect backoff and fail closed on a cursor cycle."""
+
+        if progressed:
+            self.no_progress_cycles = 0
+            self.reconnect_interval = max(0.0, self.initial_interval)
+            return
+
+        self.no_progress_cycles += 1
+        if self.no_progress_cycles >= _MAX_STREAM_CURSOR_CYCLES:
+            raise ZentureTransportError(
+                "public Run event stream made no progress after bounded reconnects"
+            )
+        self.reconnect_interval = min(
+            max(self.reconnect_interval * 2.0, self.initial_interval),
+            max(0.0, self.max_interval),
+        )
+
+
+def _is_terminal_stream_message(message: PublicRunStreamMessage) -> bool:
+    """Return whether a stream message proves the Run stream is terminal."""
+
+    if isinstance(message, PublicRunEvent):
+        return message.status in _TERMINAL_STREAM_STATUSES
+    return isinstance(message, PublicRunStreamError) and message.terminal
+
+
+def _is_retryable_stream_error(error: Exception) -> bool:
+    """Return whether a stream-open/read error may be retried safely."""
+
+    if isinstance(error, ZentureTransportError):
+        return True
+    if isinstance(error, ZentureAPIError):
+        return (
+            error.status_code in _RETRYABLE_STREAM_STATUS_CODES
+            or error.error_code in _RETRYABLE_STREAM_ERROR_CODES
+        )
+    return False
+
+
+def _raise_if_stream_stopped(
+    *,
+    run_id: str,
+    deadline: float | None,
+    stop: Callable[[], bool] | None,
+) -> None:
+    if callable(stop) and stop():
+        raise ZenturePollingStoppedError(operation_id=run_id)
+    if deadline is not None and time.monotonic() >= deadline:
+        raise ZenturePollingTimeoutError(operation_id=run_id)
 
 
 class RunsResource:
@@ -173,15 +275,57 @@ class RunsResource:
         )
 
     def iter_events(
-        self, run_id: str, *, last_event_id: str | None = None
+        self,
+        run_id: str,
+        *,
+        last_event_id: str | None = None,
+        timeout: float | None = None,
+        initial_interval: float = 1.0,
+        max_interval: float = 8.0,
+        stop: Callable[[], bool] | None = None,
     ) -> Iterator[PublicRunStreamMessage]:
-        headers = {"Accept": "text/event-stream"}
-        if last_event_id is not None:
-            headers["Last-Event-ID"] = last_event_id
-        with self._transport.stream(
-            "GET", f"/runs/{path_segment(run_id)}/events/stream", headers=headers
-        ) as response:
-            yield from _parse_sse_events(response.iter_lines())
+        if timeout is not None and timeout <= 0:
+            raise ValueError("timeout must be positive")
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        state = _RunEventStreamState(
+            cursor=last_event_id,
+            initial_interval=initial_interval,
+            max_interval=max_interval,
+        )
+
+        while True:
+            _raise_if_stream_stopped(run_id=run_id, deadline=deadline, stop=stop)
+            headers = {"Accept": "text/event-stream"}
+            if state.cursor is not None:
+                headers["Last-Event-ID"] = state.cursor
+            progressed = False
+            try:
+                with self._transport.stream(
+                    "GET", f"/runs/{path_segment(run_id)}/events/stream", headers=headers
+                ) as response:
+                    for message in _parse_sse_events(response.iter_lines()):
+                        emit, message_progressed = state.accept(message)
+                        progressed = progressed or message_progressed
+                        if not emit:
+                            continue
+                        yield message
+                        if _is_terminal_stream_message(message):
+                            return
+                        if isinstance(message, PublicRunStreamError):
+                            if message.retryable:
+                                break
+                            return
+            except (ZentureAPIError, ZentureTransportError) as exc:
+                if not _is_retryable_stream_error(exc):
+                    raise
+
+            _raise_if_stream_stopped(run_id=run_id, deadline=deadline, stop=stop)
+            state.finish_stream(progressed=progressed)
+            delay = state.reconnect_interval
+            if deadline is not None:
+                delay = min(delay, max(0.0, deadline - time.monotonic()))
+            if delay > 0:
+                time.sleep(delay)
 
     def wait(
         self,

@@ -26,14 +26,22 @@ from zenture._contract import (
 from zenture._resources._utils import idempotency_headers, parse_response, path_segment
 from zenture._resources.runs import (
     _add_wait_header,
+    _is_retryable_stream_error,
     _is_terminal_status,
+    _is_terminal_stream_message,
     _phase_key,
     _run_list_params,
+    _RunEventStreamState,
 )
-from zenture.errors import ZenturePollingStoppedError, ZenturePollingTimeoutError
+from zenture.errors import (
+    ZentureAPIError,
+    ZenturePollingStoppedError,
+    ZenturePollingTimeoutError,
+    ZentureTransportError,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncIterator, Callable, Sequence
     from datetime import datetime
 
     from zenture._transport import AsyncTransport
@@ -149,16 +157,63 @@ class AsyncRunsResource:
         return parse_response(ListRunEventsResponse, payload)
 
     async def iter_events(
-        self, run_id: str, *, last_event_id: str | None = None
+        self,
+        run_id: str,
+        *,
+        last_event_id: str | None = None,
+        timeout: float | None = None,
+        initial_interval: float = 1.0,
+        max_interval: float = 8.0,
+        stop: Callable[[], bool] | None = None,
     ) -> AsyncIterator[PublicRunStreamMessage]:
-        headers = {"Accept": "text/event-stream"}
-        if last_event_id is not None:
-            headers["Last-Event-ID"] = last_event_id
-        async with self._transport.stream(
-            "GET", f"/runs/{path_segment(run_id)}/events/stream", headers=headers
-        ) as response:
-            async for event in _parse_sse_events_async(response.aiter_lines()):
-                yield event
+        if timeout is not None and timeout <= 0:
+            raise ValueError("timeout must be positive")
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        state = _RunEventStreamState(
+            cursor=last_event_id,
+            initial_interval=initial_interval,
+            max_interval=max_interval,
+        )
+
+        while True:
+            if callable(stop) and stop():
+                raise ZenturePollingStoppedError(operation_id=run_id)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise ZenturePollingTimeoutError(operation_id=run_id)
+            headers = {"Accept": "text/event-stream"}
+            if state.cursor is not None:
+                headers["Last-Event-ID"] = state.cursor
+            progressed = False
+            try:
+                async with self._transport.stream(
+                    "GET", f"/runs/{path_segment(run_id)}/events/stream", headers=headers
+                ) as response:
+                    async for message in _parse_sse_events_async(response.aiter_lines()):
+                        emit, message_progressed = state.accept(message)
+                        progressed = progressed or message_progressed
+                        if not emit:
+                            continue
+                        yield message
+                        if _is_terminal_stream_message(message):
+                            return
+                        if isinstance(message, PublicRunStreamError):
+                            if message.retryable:
+                                break
+                            return
+            except (ZentureAPIError, ZentureTransportError) as exc:
+                if not _is_retryable_stream_error(exc):
+                    raise
+
+            if callable(stop) and stop():
+                raise ZenturePollingStoppedError(operation_id=run_id)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise ZenturePollingTimeoutError(operation_id=run_id)
+            state.finish_stream(progressed=progressed)
+            delay = state.reconnect_interval
+            if deadline is not None:
+                delay = min(delay, max(0.0, deadline - time.monotonic()))
+            if delay > 0:
+                await asyncio.sleep(delay)
 
     async def wait(
         self,

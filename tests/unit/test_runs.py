@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from zenture import AsyncZenture, Zenture
 from zenture._contract import PublicRunEvent, PublicRunHeartbeat
+from zenture.errors import (
+    ZenturePollingStoppedError,
+    ZenturePollingTimeoutError,
+    ZentureTransportError,
+)
 
 API_KEY = "zt_live_runs_test_abcdefghijklmnopqrstuvwxyz0123456789"
 RUN_ID = "run_33333333333343338333333333333333"
@@ -47,6 +54,318 @@ def _run(*, status: str = "queued") -> dict[str, object]:
         "queue": {"queue_reason": "queue:admitted", "jobs_ahead": 0},
         "cancellation_requested": False,
     }
+
+
+def _sse_event(*, event_id: str, sequence: int, status: str, event_cursor: str) -> bytes:
+    payload = {
+        "type": "run.event",
+        "event_id": event_id,
+        "run_id": RUN_ID,
+        "sequence": sequence,
+        "phase": status,
+        "status": status,
+        "message_key": f"run.status.{status}",
+        "event_cursor": event_cursor,
+    }
+    return f"event: run.event\ndata: {json.dumps(payload)}\n\n".encode()
+
+
+def _sse_error(*, event_id: str, sequence: int, retryable: bool) -> bytes:
+    payload = {
+        "type": "run.error",
+        "event_id": event_id,
+        "run_id": RUN_ID,
+        "sequence": sequence,
+        "code": "dependency_unavailable",
+        "message": "stream temporarily unavailable",
+        "retryable": retryable,
+        "terminal": not retryable,
+    }
+    return f"event: run.error\ndata: {json.dumps(payload)}\n\n".encode()
+
+
+def _stream_response(*parts: bytes) -> httpx.Response:
+    return httpx.Response(
+        200,
+        headers={"content-type": "text/event-stream"},
+        content=b"".join(parts),
+    )
+
+
+def _reconnect_responses() -> list[httpx.Response]:
+    return [
+        _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="running",
+                event_cursor="cursor_aaa",
+            )
+        ),
+        _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="running",
+                event_cursor="cursor_aaa",
+            ),
+            _sse_event(
+                event_id="event_bbb",
+                sequence=1,
+                status="running",
+                event_cursor="cursor_bbb",
+            ),
+            _sse_event(
+                event_id="event_aaa",
+                sequence=2,
+                status="running",
+                event_cursor="cursor_ccc",
+            ),
+            _sse_error(event_id="error_aaa", sequence=4, retryable=True),
+        ),
+        _stream_response(
+            _sse_event(
+                event_id="event_ccc",
+                sequence=3,
+                status="completed",
+                event_cursor="cursor_ddd",
+            )
+        ),
+    ]
+
+
+def test_sync_iter_events_reconnects_deduplicates_and_stops_at_terminal() -> None:
+    responses = _reconnect_responses()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        requests.append(request)
+        return responses[min(len(responses) - 1, len(requests) - 1)]
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    messages = list(client.runs.iter_events(RUN_ID, initial_interval=0.0, max_interval=0.0))
+
+    assert [message.event_id for message in messages] == [
+        "event_aaa",
+        "error_aaa",
+        "event_ccc",
+    ]
+    assert len(requests) == 3
+    assert requests[1].headers["last-event-id"] == "cursor_aaa"
+    assert requests[2].headers["last-event-id"] == "cursor_aaa"
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_reconnects_deduplicates_and_stops_at_terminal() -> None:
+    responses = _reconnect_responses()
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        requests.append(request)
+        return responses[min(len(responses) - 1, len(requests) - 1)]
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    messages = [
+        message
+        async for message in client.runs.iter_events(RUN_ID, initial_interval=0.0, max_interval=0.0)
+    ]
+
+    assert [message.event_id for message in messages] == [
+        "event_aaa",
+        "error_aaa",
+        "event_ccc",
+    ]
+    assert len(requests) == 3
+    assert requests[1].headers["last-event-id"] == "cursor_aaa"
+    assert requests[2].headers["last-event-id"] == "cursor_aaa"
+    await client.aclose()
+
+
+def test_sync_iter_events_reconnects_after_retryable_transport_error() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx.ReadError("stream reset")
+        return _stream_response(
+            _sse_event(
+                event_id="event_bbb",
+                sequence=2,
+                status="completed",
+                event_cursor="cursor_bbb",
+            )
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    messages = list(client.runs.iter_events(RUN_ID, initial_interval=0.0, max_interval=0.0))
+
+    assert [message.event_id for message in messages] == ["event_bbb"]
+    assert len(requests) == 2
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_reconnects_after_retryable_transport_error() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx.ReadError("stream reset")
+        return _stream_response(
+            _sse_event(
+                event_id="event_bbb",
+                sequence=2,
+                status="completed",
+                event_cursor="cursor_bbb",
+            )
+        )
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    messages = [
+        message
+        async for message in client.runs.iter_events(RUN_ID, initial_interval=0.0, max_interval=0.0)
+    ]
+
+    assert [message.event_id for message in messages] == ["event_bbb"]
+    assert len(requests) == 2
+    await client.aclose()
+
+
+def test_sync_iter_events_stops_on_caller_stop() -> None:
+    requests: list[httpx.Request] = []
+    stop_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="running",
+                event_cursor="cursor_aaa",
+            )
+        )
+
+    def stop() -> bool:
+        nonlocal stop_calls
+        stop_calls += 1
+        return stop_calls > 1
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZenturePollingStoppedError):
+        list(client.runs.iter_events(RUN_ID, stop=stop, initial_interval=0.0, max_interval=0.0))
+
+    assert len(requests) == 1
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_stops_on_caller_timeout() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="running",
+                event_cursor="cursor_aaa",
+            )
+        )
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZenturePollingTimeoutError):
+        [
+            message
+            async for message in client.runs.iter_events(
+                RUN_ID, timeout=0.005, initial_interval=0.01, max_interval=0.01
+            )
+        ]
+
+    assert len(requests) == 1
+    await client.aclose()
+
+
+def test_sync_iter_events_bounds_cursor_cycles() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="running",
+                event_cursor="cursor_aaa",
+            )
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZentureTransportError, match="bounded"):
+        list(client.runs.iter_events(RUN_ID, initial_interval=0.0, max_interval=0.0))
+
+    assert 1 < len(requests) < 10
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_bounds_cursor_cycles() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="running",
+                event_cursor="cursor_aaa",
+            )
+        )
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZentureTransportError, match="bounded"):
+        [
+            message
+            async for message in client.runs.iter_events(
+                RUN_ID, initial_interval=0.0, max_interval=0.0
+            )
+        ]
+
+    assert 1 < len(requests) < 10
+    await client.aclose()
 
 
 def test_sync_wait_returns_when_queued_run_reaches_completed() -> None:
@@ -134,6 +453,9 @@ data: {\"type\":\"run.event\",\"event_id\":\"event_aaaaaaaa\",\"run_id\":\"run_3
 
 event: run.heartbeat
 data: {\"type\":\"run.heartbeat\",\"event_id\":\"heartbeat_aaa\",\"run_id\":\"run_33333333333343338333333333333333\",\"sequence\":1}
+
+event: run.event
+data: {\"type\":\"run.event\",\"event_id\":\"event_bbbbbbbb\",\"run_id\":\"run_33333333333343338333333333333333\",\"sequence\":2,\"phase\":\"completed\",\"status\":\"completed\",\"message_key\":\"run.status.completed\",\"event_cursor\":\"cursor_bbb\"}
 
 """
 
