@@ -566,6 +566,18 @@ class _IdleSyncStream(httpx.SyncByteStream):
         self.closed = True
 
 
+class _HeartbeatThenTimeoutSyncStream(httpx.SyncByteStream):
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __iter__(self):
+        yield _sse_heartbeat(event_id="heartbeat_aaa", sequence=1)
+        raise httpx.ReadTimeout("heartbeat checkpoint")
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class _StopAwareAsyncStream(httpx.AsyncByteStream):
     def __init__(self) -> None:
         self.closed = False
@@ -807,6 +819,106 @@ def test_sync_iter_events_bounds_idle_read_and_closes_stream() -> None:
     assert read_timeouts[0] <= 0.03
     assert elapsed < 0.2
     assert streams[0].closed
+    client.close()
+
+
+def test_sync_timeout_only_stream_uses_heartbeat_safe_checkpoint() -> None:
+    streams: list[_HeartbeatThenTimeoutSyncStream] = []
+    read_timeouts: list[float] = []
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        read_timeouts.append(request.extensions["timeout"]["read"])
+        if len(requests) == 1:
+            stream = _HeartbeatThenTimeoutSyncStream()
+            streams.append(stream)
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=stream,
+            )
+        return _stream_response(
+            _sse_event(
+                event_id="event_bbb",
+                sequence=2,
+                status="completed",
+                event_cursor="cursor_bbb",
+            )
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    messages = list(
+        client.runs.iter_events(
+            RUN_ID,
+            timeout=30.0,
+            initial_interval=0.0,
+            max_interval=0.0,
+        )
+    )
+
+    assert [message.event_id for message in messages] == ["heartbeat_aaa", "event_bbb"]
+    assert len(requests) == 2
+    assert read_timeouts[0] == 15.0
+    assert streams[0].closed
+    client.close()
+
+
+def test_sync_timeout_only_stream_reconfigures_at_final_deadline_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._resources.runs as runs_module
+
+    clock_values = iter((0.0, 0.0, 0.0))
+
+    def monotonic() -> float:
+        return next(clock_values, 5.0)
+
+    fake_time = SimpleNamespace(monotonic=monotonic, sleep=lambda _: None)
+    monkeypatch.setattr(runs_module, "time", fake_time)
+    requests: list[httpx.Request] = []
+    read_timeouts: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        read_timeouts.append(request.extensions["timeout"]["read"])
+        if len(requests) == 1:
+            return _stream_response(
+                _sse_event(
+                    event_id="event_aaa",
+                    sequence=1,
+                    status="running",
+                    event_cursor="cursor_aaa",
+                )
+            )
+        return _stream_response(
+            _sse_event(
+                event_id="event_bbb",
+                sequence=2,
+                status="completed",
+                event_cursor="cursor_bbb",
+            )
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    messages = list(
+        client.runs.iter_events(
+            RUN_ID,
+            timeout=20.0,
+            initial_interval=0.0,
+            max_interval=0.0,
+        )
+    )
+
+    assert [message.event_id for message in messages] == ["event_aaa", "event_bbb"]
+    assert read_timeouts == [15.0, 15.0]
+    assert requests[1].headers["last-event-id"] == "cursor_aaa"
     client.close()
 
 

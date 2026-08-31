@@ -63,6 +63,7 @@ _RETRYABLE_STREAM_ERROR_CODES = frozenset(
 _MAX_STREAM_CURSOR_CYCLES = 3
 _MAX_SEEN_EVENT_IDS = 1_024
 _SYNC_STREAM_STOP_POLL_INTERVAL = 0.25
+_SYNC_STREAM_HEARTBEAT_INTERVAL = 15.0
 _MIN_STREAM_CHECKPOINT_BACKOFF = 0.01
 
 
@@ -197,7 +198,17 @@ def _sync_stream_timeout(
     if deadline is None:
         return _SYNC_STREAM_STOP_POLL_INTERVAL if callable(stop) else None
     remaining = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
+    if not callable(stop):
+        return min(remaining, _SYNC_STREAM_HEARTBEAT_INTERVAL)
     return min(remaining, _SYNC_STREAM_STOP_POLL_INTERVAL)
+
+
+def _sync_stream_needs_final_window_reconfigure(
+    *, deadline: float | None, stop: Callable[[], bool] | None
+) -> bool:
+    if deadline is None or callable(stop):
+        return False
+    return deadline - time.monotonic() <= _SYNC_STREAM_HEARTBEAT_INTERVAL
 
 
 def _is_stream_read_timeout(error: Exception) -> bool:
@@ -344,6 +355,7 @@ class RunsResource:
             initial_interval=initial_interval,
             max_interval=max_interval,
         )
+        final_window_reconfigured = False
 
         while True:
             _raise_if_stream_stopped(run_id=run_id, deadline=deadline, stop=stop)
@@ -369,6 +381,15 @@ class RunsResource:
                         if _is_terminal_stream_message(message):
                             return
                         _raise_if_stream_stopped(run_id=run_id, deadline=deadline, stop=stop)
+                        if (
+                            not final_window_reconfigured
+                            and _sync_stream_needs_final_window_reconfigure(
+                                deadline=deadline, stop=stop
+                            )
+                        ):
+                            final_window_reconfigured = True
+                            checkpoint = True
+                            break
                         if isinstance(message, PublicRunStreamError):
                             if message.retryable:
                                 break
