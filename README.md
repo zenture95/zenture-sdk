@@ -77,6 +77,8 @@ For copy-paste SDK usage, routes, and example response structures for every
 public call, see [`docs/sdk-call-reference.md`](./docs/sdk-call-reference.md).
 For raw JSON response bodies and SDK model mapping, see
 [`docs/response-shapes.md`](./docs/response-shapes.md).
+The opt-in MCP peer adapter is documented in
+[`docs/mcp-client.md`](./docs/mcp-client.md).
 
 ## Sync Quickstart
 

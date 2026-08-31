@@ -101,6 +101,53 @@ class ZentureTransportError(ZentureError):
     """Raised for client-side network and timeout failures."""
 
 
+class ZentureMCPError(ZentureError):
+    """Raised for bounded MCP protocol and tool failures."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        status_code: int = 502,
+        retryable: bool = False,
+        next_action: str = "check_request",
+        request_id: str | None = None,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        self.code = code
+        self.status_code = status_code
+        self.retryable = retryable
+        self.next_action = next_action
+        self.request_id = request_id
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(self._safe_message())
+
+    def _safe_message(self) -> str:
+        message = f"MCP request failed: {self.code}"
+        if self.request_id is not None:
+            message += f" (request_id={self.request_id})"
+        return message
+
+
+class ZentureMCPProtocolError(ZentureMCPError):
+    """Raised when an MCP result or catalog violates the bounded contract."""
+
+    def __init__(self, code: str = "protocol_error") -> None:
+        super().__init__(code, status_code=502, next_action="retry_later")
+
+
+class ZentureMCPDependencyError(ZentureMCPError):
+    """Raised when the optional official MCP transport is unavailable."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "mcp_dependency_unavailable",
+            status_code=503,
+            retryable=True,
+            next_action="install_optional_dependency",
+        )
+
+
 class ZenturePollingTimeoutError(ZentureError):
     """Raised when local operation polling exhausts its timeout budget."""
 

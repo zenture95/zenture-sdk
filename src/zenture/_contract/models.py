@@ -605,6 +605,11 @@ class PublicRunListItem(SDKBaseModel):
     def _status(cls, value: object) -> object:
         return RunStatus(value) if isinstance(value, str) else value
 
+    @field_validator("decision", mode="before")
+    @classmethod
+    def _decision(cls, value: object) -> object:
+        return PublicDecision(value) if isinstance(value, str) else value
+
 
 class ListRunsResponse(SDKBaseModel):
     runs: tuple[PublicRunListItem, ...]

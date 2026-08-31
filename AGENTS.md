@@ -5,9 +5,11 @@ the zenture Public API.
 
 ## Repository Purpose
 
-`zenture-sdk` is the official server-side only Python SDK. It is intended for
-backend services, workers, automation jobs, CI, evaluation pipelines, and
-controlled notebooks. It is not for browsers, mobile apps, or frontend bundles.
+`zenture-sdk` is the official server-side Python SDK and the implementation
+home for the opt-in client-side MCP peer adapter. It is intended for backend
+services, workers, automation jobs, CI, evaluation pipelines, controlled
+notebooks and governed MCP-consuming clients. It is not for browsers, mobile
+apps, or frontend bundles.
 
 Package names:
 
@@ -31,6 +33,9 @@ Public product references:
   public `client.<resource>` attributes for operations, chat, input wizard,
   evaluations, models, billing, usage, limits, and helloworld.
 - `src/zenture/_transport/`: private sync/async `httpx` transport layer.
+- `src/zenture/_mcp/`: opt-in MCP client transport ports, official Streamable
+  HTTP binding and typed peer Run adapter; it owns no OAuth, Backend, Engine or
+  persistence authority.
 - `src/zenture/_contract/`: internal OpenAPI-derived Pydantic models.
 - `src/zenture/errors.py`: typed SDK exceptions.
 - `src/zenture/polling.py`: polling policy primitives.
@@ -42,6 +47,10 @@ Public product references:
 
 Only `Zenture`, `AsyncZenture`, and `__version__` are top-level public exports.
 Do not export internal `_contract` models from `zenture.__init__`.
+
+The `_mcp` namespace is intentionally an opt-in implementation surface until
+the later atomic `zenture-client` cutover. Its bearer input is caller-provided;
+the SDK does not issue, refresh, revoke, persist or log MCP credentials.
 
 Resource methods such as `client.chat.run(...)`, `client.models.list(...)`, and
 `client.operations.wait(...)` are the ergonomic public API. `_transport`,

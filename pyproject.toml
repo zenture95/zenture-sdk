@@ -29,6 +29,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = [
+  "mcp==2.0.0",
+]
 dev = [
   "build>=1.2",
   "mypy>=1.13",
@@ -73,7 +76,7 @@ packages = ["src/zenture"]
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]
 pythonpath = ["src"]
-testpaths = ["tests/unit", "tests/integration"]
+testpaths = ["tests/unit", "tests/integration", "tests/e2e"]
 
 [tool.mypy]
 python_version = "3.11"

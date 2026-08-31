@@ -22,6 +22,14 @@ These packages are installed for normal SDK use.
 | `typing-extensions` | PSF-2.0 | Transitive dependency of `pydantic`. |
 | `typing-inspection` | MIT | Transitive dependency of `pydantic`. |
 
+## Optional MCP Integration
+
+These packages are installed only when the opt-in MCP client extra is used.
+
+| Package | License | Notes |
+| --- | --- | --- |
+| `mcp` | MIT | Official Model Context Protocol Python client transport; pinned to `2.0.0`. |
+
 ## Build Dependencies
 
 These packages are used to build source distributions and wheels.
@@ -57,4 +65,3 @@ The SDK runtime dependency set is intentionally small and uses permissive
 licenses, with the exception of MPL-2.0 packages (`certifi`, and `pathspec` for
 build tooling). MPL-2.0 is a weak-copyleft license and is commonly accepted for
 Python package usage, but it is not equivalent to Apache-2.0.
-

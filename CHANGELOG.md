@@ -8,7 +8,10 @@ state.
 
 ## Unreleased
 
-No unreleased changes.
+- Added an opt-in, internal MCP client peer adapter with sync/async transport
+  ports, official Streamable HTTP integration, typed Run mappings, bounded safe
+  errors and local cross-channel composition tests. The API-only installation
+  remains unchanged; public `zenture-client` promotion is deferred.
 
 ## 1.0.0rc3 - 2026-06-28
 
