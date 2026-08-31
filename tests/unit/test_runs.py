@@ -34,19 +34,70 @@ def _proposal() -> dict[str, object]:
     }
 
 
-def _run() -> dict[str, object]:
+def _run(*, status: str = "queued") -> dict[str, object]:
     return {
         "run_id": RUN_ID,
         "generation": 1,
         "family": "knowledge",
         "work_type": "answer",
         "profile": "standard",
-        "status": "queued",
+        "status": status,
         "created_at": "2026-08-30T12:00:00Z",
         "updated_at": "2026-08-30T12:00:00Z",
         "queue": {"queue_reason": "queue:admitted", "jobs_ahead": 0},
         "cancellation_requested": False,
     }
+
+
+def test_sync_wait_returns_when_queued_run_reaches_completed() -> None:
+    responses = [_run(), _run(status="completed")]
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == f"/v1/runs/{RUN_ID}"
+        seen.append(request)
+        return httpx.Response(200, json=responses[min(len(responses) - 1, len(seen) - 1)])
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    result = client.runs.wait(
+        RUN_ID,
+        timeout=0.02,
+        initial_interval=0.001,
+        max_interval=0.001,
+    )
+
+    assert result.status.value == "completed"
+    assert len(seen) == 2
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_wait_returns_when_queued_run_reaches_completed() -> None:
+    responses = [_run(), _run(status="completed")]
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == f"/v1/runs/{RUN_ID}"
+        seen.append(request)
+        return httpx.Response(200, json=responses[min(len(responses) - 1, len(seen) - 1)])
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = await client.runs.wait(
+        RUN_ID,
+        timeout=0.02,
+        initial_interval=0.001,
+        max_interval=0.001,
+    )
+
+    assert result.status.value == "completed"
+    assert len(seen) == 2
+    await client.aclose()
 
 
 def test_sync_run_helper_preserves_idempotency_and_wait_hint() -> None:

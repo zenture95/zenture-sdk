@@ -20,6 +20,7 @@ from zenture._contract import (
     PublicRunStreamError,
     PublicRunStreamMessage,
     RecordRunOutcomeRequest,
+    RunStatus,
     SignedUploadResponse,
 )
 from zenture._resources._utils import (
@@ -35,7 +36,22 @@ if TYPE_CHECKING:
 
     from zenture._transport import SyncTransport
 
-_TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "expired", "budget_exhausted"}
+_TERMINAL_STATUSES = frozenset(
+    {
+        RunStatus.COMPLETED,
+        RunStatus.FAILED,
+        RunStatus.CANCELLED,
+        RunStatus.EXPIRED,
+        RunStatus.SUCCEEDED,
+        RunStatus.BUDGET_EXHAUSTED,
+    }
+)
+
+
+def _is_terminal_status(status: RunStatus) -> bool:
+    """Return whether a public Run status is terminal."""
+
+    return status in _TERMINAL_STATUSES
 
 
 class RunsResource:
@@ -186,7 +202,7 @@ class RunsResource:
             if time.monotonic() >= deadline:
                 raise ZenturePollingTimeoutError(operation_id=run_id)
             result = self.get(run_id)
-            if result.status.value in _TERMINAL_STATUSES:
+            if _is_terminal_status(result.status):
                 return result
             time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
             interval = min(interval * 2, max_interval)

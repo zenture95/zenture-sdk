@@ -24,7 +24,12 @@ from zenture._contract import (
     SignedUploadResponse,
 )
 from zenture._resources._utils import idempotency_headers, parse_response, path_segment
-from zenture._resources.runs import _add_wait_header, _phase_key, _run_list_params
+from zenture._resources.runs import (
+    _add_wait_header,
+    _is_terminal_status,
+    _phase_key,
+    _run_list_params,
+)
 from zenture.errors import ZenturePollingStoppedError, ZenturePollingTimeoutError
 
 if TYPE_CHECKING:
@@ -32,8 +37,6 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from zenture._transport import AsyncTransport
-
-_TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "expired", "budget_exhausted"}
 
 
 class AsyncRunsResource:
@@ -176,7 +179,7 @@ class AsyncRunsResource:
             if time.monotonic() >= deadline:
                 raise ZenturePollingTimeoutError(operation_id=run_id)
             result = await self.get(run_id)
-            if result.status.value in _TERMINAL_STATUSES:
+            if _is_terminal_status(result.status):
                 return result
             await asyncio.sleep(min(interval, max(0.0, deadline - time.monotonic())))
             interval = min(interval * 2, max_interval)
