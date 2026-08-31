@@ -102,11 +102,14 @@ async def open_streamable_http_transport(
         raise ZentureMCPDependencyError() from exc
 
     try:
-        async with async_client(
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=timeout_type(timeout, read=timeout),
-            follow_redirects=False,
-        ) as http_client, streamablehttp_client(target.url, http_client=http_client) as streams:
+        async with (
+            async_client(
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=timeout_type(timeout, read=timeout),
+                follow_redirects=False,
+            ) as http_client,
+            streamablehttp_client(target.url, http_client=http_client) as streams,
+        ):
             read_stream, write_stream = streams
             async with client_session(read_stream, write_stream) as session:
                 await session.initialize()

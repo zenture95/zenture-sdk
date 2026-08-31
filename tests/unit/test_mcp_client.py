@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -29,7 +31,9 @@ from zenture.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import AsyncIterator, Mapping
+
+    from zenture._mcp.transport import AsyncMcpTransport
 
 RUN_ID = "run_33333333333343338333333333333333"
 ARTIFACT_REF = "art_33333333333343338333333333333333"
@@ -140,6 +144,60 @@ class AsyncRecordingTransport:
         return _tool_result(self.responses[name])
 
 
+class RawTransport:
+    def __init__(self, result: object) -> None:
+        self.result = result
+
+    def list_tools(self) -> object:
+        return {"tools": list(PRODUCT_TOOL_NAMES)}
+
+    def call_tool(self, _name: str, _arguments: Mapping[str, object]) -> object:
+        return self.result
+
+
+class RaisingTransport:
+    def list_tools(self) -> object:
+        raise RuntimeError("transport failed")
+
+    def call_tool(self, _name: str, _arguments: Mapping[str, object]) -> object:
+        raise RuntimeError("transport failed")
+
+
+class AsyncRaisingTransport:
+    async def list_tools(self) -> object:
+        raise RuntimeError("transport failed")
+
+    async def call_tool(self, _name: str, _arguments: Mapping[str, object]) -> object:
+        raise RuntimeError("transport failed")
+
+
+class CatalogTransport:
+    def __init__(self, catalog: object) -> None:
+        self.catalog = catalog
+
+    def list_tools(self) -> object:
+        return self.catalog
+
+    def call_tool(self, _name: str, _arguments: Mapping[str, object]) -> object:
+        return _tool_result(_run())
+
+
+class MCPErrorTransport:
+    def list_tools(self) -> object:
+        return {"tools": list(PRODUCT_TOOL_NAMES)}
+
+    def call_tool(self, _name: str, _arguments: Mapping[str, object]) -> object:
+        raise ZentureMCPError("known_transport_error")
+
+
+class AsyncMCPErrorTransport:
+    async def list_tools(self) -> object:
+        raise ZentureMCPError("known_transport_error")
+
+    async def call_tool(self, _name: str, _arguments: Mapping[str, object]) -> object:
+        raise ZentureMCPError("known_transport_error")
+
+
 def _responses() -> dict[str, object]:
     return {
         "run": _run(status="queued"),
@@ -236,6 +294,78 @@ async def test_async_mcp_peer_preserves_the_same_typed_boundary() -> None:
     assert [name for name, _arguments in transport.calls] == ["run", "get_run", "cancel_run"]
 
 
+@pytest.mark.asyncio
+async def test_async_mcp_peer_maps_artifact_list_replay_and_outcome_operations() -> None:
+    transport = AsyncRecordingTransport(_responses())
+    client = AsyncMcpClient(transport)
+
+    artifact = await client.attach_artifact(
+        file_name="answer.txt",
+        mime_type="text/plain",
+        byte_size=4,
+        content_hash="a" * 64,
+    )
+    runs = await client.list_runs(limit=1)
+    events = await client.replay_events(RUN_ID, cursor="cursor_0", limit=1)
+    outcome = await client.record_run_outcome(
+        RUN_ID,
+        outcome="edited",
+        edited_artifact_ref=ARTIFACT_REF,
+        finding_adjudications=[{"finding_ref": "finding_1", "outcome": "confirmed"}],
+    )
+
+    assert isinstance(artifact, ArtifactUploadResponse)
+    assert isinstance(runs, ListRunsResponse)
+    assert isinstance(events, ListRunEventsResponse)
+    assert isinstance(outcome, PublicRunResponse)
+    assert [name for name, _arguments in transport.calls] == [
+        "attach_artifact",
+        "list_runs",
+        "get_run",
+        "record_run_outcome",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_async_mcp_client_maps_transport_failures_and_missing_catalog() -> None:
+    failing = AsyncMcpClient(AsyncRaisingTransport())
+    with pytest.raises(ZentureMCPError, match="mcp_transport_unavailable"):
+        await failing.list_tools()
+    with pytest.raises(ZentureMCPError, match="mcp_transport_unavailable"):
+        await failing.get_run(RUN_ID)
+
+    incomplete = AsyncRecordingTransport(_responses())
+
+    async def incomplete_tools() -> object:
+        return {"tools": [{"name": "run"}]}
+
+    incomplete.list_tools = incomplete_tools  # type: ignore[method-assign]
+    with pytest.raises(ZentureMCPProtocolError, match="tool_catalog_incomplete"):
+        await AsyncMcpClient(incomplete).require_product_tools()
+
+
+@pytest.mark.asyncio
+async def test_async_mcp_client_connects_through_the_transport_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._mcp.client as client_module
+
+    transport = AsyncRecordingTransport(_responses())
+
+    @asynccontextmanager
+    async def open_transport(*_args: object, **_kwargs: object) -> AsyncIterator[AsyncMcpTransport]:
+        yield transport
+
+    monkeypatch.setattr(client_module, "open_streamable_http_transport", open_transport)
+    async with AsyncMcpClient.connect("https://mcp.zenture.app", bearer_token="opaque") as client:
+        result = await client.run(
+            task="Review this answer",
+            artifact={"type": "text", "value": "text"},
+        )
+
+    assert result.run_id == RUN_ID
+
+
 def test_mcp_error_is_typed_and_does_not_expose_remote_body() -> None:
     transport = RecordingTransport(
         {
@@ -278,6 +408,167 @@ def test_mcp_payloads_are_bounded_and_reject_sensitive_fields() -> None:
         McpClient(malformed).get_run(RUN_ID)
 
 
+@pytest.mark.parametrize(
+    ("result", "error_code"),
+    [
+        (None, "invalid_result"),
+        ({"value": object()}, "invalid_json"),
+        ({"value": "x" * (256 * 1024)}, "result_too_large"),
+        ({"error": "invalid"}, "invalid_error"),
+    ],
+)
+def test_mcp_result_boundary_rejects_malformed_or_unbounded_payloads(
+    result: object, error_code: str
+) -> None:
+    with pytest.raises(ZentureMCPProtocolError) as error:
+        McpClient(RawTransport(result)).get_run(RUN_ID)
+
+    assert error.value.code == error_code
+
+
+def test_mcp_result_boundary_accepts_protocol_structured_content_alias() -> None:
+    read = McpClient(RawTransport({"structuredContent": _run()})).get_run(RUN_ID)
+
+    assert read.run.run_id == RUN_ID
+
+
+def test_mcp_result_boundary_rejects_mcp_error_flag_without_safe_error_envelope() -> None:
+    result = {
+        "isError": True,
+        "structured_content": {"status": "not-an-error-envelope"},
+    }
+
+    with pytest.raises(ZentureMCPProtocolError, match="invalid_error"):
+        McpClient(RawTransport(result)).get_run(RUN_ID)
+
+
+def test_mcp_error_envelope_rejects_invalid_error_code() -> None:
+    error_payload = {
+        "error": {"code": "bad code", "http_status": 400, "retryable": False, "next_action": "x"}
+    }
+
+    with pytest.raises(ZentureMCPProtocolError, match="invalid_error_code"):
+        McpClient(RawTransport(error_payload)).get_run(RUN_ID)
+
+
+@pytest.mark.parametrize(
+    ("error_payload", "expected_retryable"),
+    [
+        (
+            {"error": {"code": "bad", "http_status": "400", "retryable": "no", "next_action": 1}},
+            False,
+        ),
+        (
+            {
+                "error": {
+                    "code": "bad",
+                    "http_status": 700,
+                    "retryable": True,
+                    "next_action": "x" * 129,
+                    "request_id": 1,
+                    "retry_after_seconds": -1,
+                }
+            },
+            True,
+        ),
+    ],
+)
+def test_mcp_error_envelope_normalizes_invalid_metadata(
+    error_payload: dict[str, object],
+    expected_retryable: bool,
+) -> None:
+    with pytest.raises(ZentureMCPError) as error:
+        McpClient(RawTransport(error_payload)).get_run(RUN_ID)
+
+    assert error.value.status_code == 502
+    assert error.value.retryable is expected_retryable
+    assert error.value.next_action == "check_request"
+
+
+def test_mcp_error_envelope_preserves_bounded_optional_metadata() -> None:
+    error_payload = {
+        "error": {
+            "code": "capacity_unavailable",
+            "http_status": 503,
+            "retryable": True,
+            "next_action": "retry_later",
+            "request_id": "req_1",
+            "retry_after_seconds": 2,
+        }
+    }
+
+    with pytest.raises(ZentureMCPError) as error:
+        McpClient(RawTransport(error_payload)).get_run(RUN_ID)
+
+    assert error.value.status_code == 503
+    assert error.value.retryable is True
+    assert error.value.next_action == "retry_later"
+    assert error.value.request_id == "req_1"
+    assert error.value.retry_after_seconds == 2
+
+
+def test_mcp_client_maps_invalid_result_contract_to_protocol_error() -> None:
+    with pytest.raises(ZentureMCPProtocolError, match="invalid_result_contract"):
+        McpClient(RawTransport({})).get_run(RUN_ID)
+
+
+def test_mcp_client_maps_transport_failures_to_safe_typed_error() -> None:
+    client = McpClient(RaisingTransport())
+
+    with pytest.raises(ZentureMCPError, match="mcp_transport_unavailable"):
+        client.list_tools()
+    with pytest.raises(ZentureMCPError, match="mcp_transport_unavailable"):
+        client.get_run(RUN_ID)
+
+    with pytest.raises(ZentureMCPError, match="known_transport_error"):
+        McpClient(MCPErrorTransport()).get_run(RUN_ID)
+
+
+@pytest.mark.asyncio
+async def test_async_mcp_client_preserves_typed_transport_errors() -> None:
+    client = AsyncMcpClient(AsyncMCPErrorTransport())
+    with pytest.raises(ZentureMCPError, match="known_transport_error"):
+        await client.list_tools()
+    with pytest.raises(ZentureMCPError, match="known_transport_error"):
+        await client.get_run(RUN_ID)
+
+    with pytest.raises(ZentureMCPProtocolError, match="event_replay_missing"):
+        await AsyncMcpClient(AsyncRecordingTransport({"get_run": _run()})).replay_events(RUN_ID)
+
+
+def test_mcp_client_requires_the_complete_product_catalog() -> None:
+    with pytest.raises(ZentureMCPProtocolError, match="tool_catalog_incomplete"):
+        McpClient(RecordingTransport(_responses(), tool_names=("run",))).require_product_tools()
+
+
+def test_mcp_client_replay_requires_an_explicit_replay_page() -> None:
+    with pytest.raises(ZentureMCPProtocolError, match="event_replay_missing"):
+        McpClient(RecordingTransport({"get_run": _run()})).replay_events(RUN_ID)
+
+    replay = McpClient(RecordingTransport(_responses())).replay_events(
+        RUN_ID, cursor="cursor_0", limit=1
+    )
+    assert replay.events[0].event_id == "event_1"
+
+    with pytest.raises(ZentureMCPProtocolError, match="invalid_event_replay"):
+        McpClient(RecordingTransport({"get_run": {**_run(), "event_replay": "invalid"}})).get_run(
+            RUN_ID, replay_cursor="cursor_0"
+        )
+
+
+def test_mcp_tool_catalog_rejects_invalid_and_unbounded_descriptors() -> None:
+    with pytest.raises(ZentureMCPProtocolError, match="invalid_tool_catalog"):
+        McpClient(RecordingTransport(_responses(), tool_names=("Run",))).list_tools()
+
+    too_many_names = tuple(f"tool_{index}" for index in range(129))
+    with pytest.raises(ZentureMCPProtocolError, match="tool_catalog_too_large"):
+        McpClient(RecordingTransport(_responses(), tool_names=too_many_names)).list_tools()
+
+    for catalog in ({"tools": "invalid"}, {"missing": []}, object()):
+        with pytest.raises(ZentureMCPProtocolError, match="invalid_tool_catalog"):
+            McpClient(CatalogTransport(catalog)).list_tools()
+
+
 def test_mcp_endpoint_accepts_canonical_hosts_and_rejects_arbitrary_origins() -> None:
     assert McpEndpoint.from_value("https://mcp.zenture.app").url == "https://mcp.zenture.app/"
     assert McpEndpoint.from_value("https://mcp-int.zenture.app/").url.endswith("/")
@@ -289,6 +580,71 @@ def test_mcp_endpoint_accepts_canonical_hosts_and_rejects_arbitrary_origins() ->
         McpEndpoint.from_value("http://mcp.zenture.app")
     with pytest.raises(ValueError, match="approved zenture origin"):
         McpEndpoint("https://untrusted.example/")
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "message"),
+    [
+        ("https://user:pass@mcp.zenture.app/", "user information"),
+        ("https://mcp.zenture.app/?token=hidden", "query"),
+        ("https://mcp.zenture.app/mcp", "hosted root"),
+        ("https://mcp.zenture.app:444/", "canonical HTTPS port"),
+        ("https://mcp.zenture.app:bad/", "port is invalid"),
+        ("", "non-empty"),
+    ],
+)
+def test_mcp_endpoint_rejects_unsafe_url_shapes(endpoint: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        McpEndpoint.from_value(endpoint)
+
+
+@pytest.mark.parametrize(
+    ("factory", "value", "message"),
+    [
+        (
+            "artifact",
+            {"file_name": "a", "mime_type": "text/plain", "byte_size": 1, "content_hash": "bad"},
+            "lowercase SHA",
+        ),
+        (
+            "artifact",
+            {"file_name": "a", "mime_type": "text/plain", "byte_size": 1, "content_hash": None},
+            "lowercase SHA",
+        ),
+        ("list", {"status": tuple("x" for _ in range(9))}, "eight short values"),
+        ("list", {"cursor": "!"}, "cursor is invalid"),
+        ("get", {"run_id": RUN_ID, "replay_cursor": "!"}, "replay_cursor is invalid"),
+        ("outcome", {"run_id": "bad", "outcome": "used"}, "run_id is invalid"),
+        (
+            "outcome",
+            {"run_id": RUN_ID, "outcome": "used", "edited_artifact_ref": ARTIFACT_REF},
+            "edited outcome requires",
+        ),
+        (
+            "outcome",
+            {"run_id": RUN_ID, "outcome": "edited", "edited_artifact_ref": "bad"},
+            "edited_artifact_ref is invalid",
+        ),
+    ],
+)
+def test_mcp_request_models_reject_invalid_or_ambiguous_inputs(
+    factory: str, value: dict[str, object], message: str
+) -> None:
+    from zenture._mcp.contracts import (
+        McpArtifactRequest,
+        McpGetRunRequest,
+        McpListRunsRequest,
+        McpOutcomeRequest,
+    )
+
+    factories = {
+        "artifact": McpArtifactRequest,
+        "list": McpListRunsRequest,
+        "get": McpGetRunRequest,
+        "outcome": McpOutcomeRequest,
+    }
+    with pytest.raises(ValueError, match=message):
+        factories[factory](**value)
 
 
 def test_mcp_tool_catalog_rejects_duplicate_names() -> None:
@@ -401,6 +757,7 @@ async def test_official_streamable_transport_is_lazy_and_credential_scoped(
         bearer_token=lambda: "opaque",
     ) as transport:
         await transport.list_tools()
+        await transport.call_tool("run", {"task": "selected"})
 
     assert requested == ["mcp", "mcp.client.streamable_http", "httpx2"]
     assert observed["initialized"] is True
@@ -414,6 +771,168 @@ async def test_official_streamable_transport_is_lazy_and_credential_scoped(
     stream_kwargs = observed["stream_kwargs"]
     assert isinstance(stream_kwargs, dict)
     assert "http_client" in stream_kwargs
+
+
+@pytest.mark.asyncio
+async def test_official_transport_preserves_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._mcp.transport as transport_module
+
+    class Timeout:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+    class CancelledClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> CancelledClient:
+            raise asyncio.CancelledError
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            pass
+
+    def import_module(name: str) -> object:
+        if name == "mcp":
+            return SimpleNamespace(ClientSession=object)
+        if name == "mcp.client.streamable_http":
+            return SimpleNamespace(streamable_http_client=object)
+        if name == "httpx2":
+            return SimpleNamespace(AsyncClient=CancelledClient, Timeout=Timeout)
+        raise AssertionError(name)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+    with pytest.raises(asyncio.CancelledError):
+        async with transport_module.open_streamable_http_transport(
+            "https://mcp.zenture.app",
+            bearer_token="opaque",
+        ):
+            raise AssertionError("transport should not open")
+
+
+@pytest.mark.asyncio
+async def test_official_transport_preserves_typed_mcp_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._mcp.transport as transport_module
+
+    class Timeout:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+    class HttpClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> HttpClient:
+            return self
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            pass
+
+    class FailingStream:
+        async def __aenter__(self) -> tuple[object, object]:
+            raise ZentureMCPError("known_transport_error")
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            pass
+
+    def import_module(name: str) -> object:
+        if name == "mcp":
+            return SimpleNamespace(ClientSession=object)
+        if name == "mcp.client.streamable_http":
+            return SimpleNamespace(streamable_http_client=lambda *_args, **_kwargs: FailingStream())
+        if name == "httpx2":
+            return SimpleNamespace(AsyncClient=HttpClient, Timeout=Timeout)
+        raise AssertionError(name)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+    with pytest.raises(ZentureMCPError, match="known_transport_error"):
+        async with transport_module.open_streamable_http_transport(
+            "https://mcp.zenture.app",
+            bearer_token="opaque",
+        ):
+            raise AssertionError("transport should not open")
+
+
+@pytest.mark.asyncio
+async def test_official_transport_maps_session_failures_to_safe_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._mcp.transport as transport_module
+
+    class FailingClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FailingClient:
+            raise RuntimeError("remote body must not escape")
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            pass
+
+    def import_module(name: str) -> object:
+        if name == "mcp":
+            return SimpleNamespace(ClientSession=object)
+        if name == "mcp.client.streamable_http":
+            return SimpleNamespace(streamable_http_client=lambda *_args, **_kwargs: object())
+        if name == "httpx2":
+            return SimpleNamespace(AsyncClient=FailingClient, Timeout=object)
+        raise AssertionError(name)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+    with pytest.raises(ZentureMCPError, match="mcp_transport_unavailable"):
+        async with transport_module.open_streamable_http_transport(
+            "https://mcp.zenture.app",
+            bearer_token="opaque",
+        ):
+            raise AssertionError("transport should not open")
+
+
+@pytest.mark.asyncio
+async def test_official_transport_rejects_invalid_timeout_before_optional_import() -> None:
+    import zenture._mcp.transport as transport_module
+
+    with pytest.raises(ValueError, match="between 0 and 300"):
+        async with transport_module.open_streamable_http_transport(
+            "https://mcp.zenture.app",
+            bearer_token="opaque",
+            timeout=0,
+        ):
+            raise AssertionError("transport should not open")
+
+
+def test_bearer_resolution_is_caller_owned_and_bounded() -> None:
+    from zenture._mcp.transport import resolve_bearer_token
+
+    assert resolve_bearer_token(lambda: "opaque") == "opaque"
+    with pytest.raises(ValueError, match="bounded"):
+        resolve_bearer_token(" ")
+    with pytest.raises(ValueError, match="bounded"):
+        resolve_bearer_token("x" * 4097)
+
+    async def deferred_value() -> str:
+        return "opaque"
+
+    pending = deferred_value()
+    with pytest.raises(TypeError, match="asynchronous"):
+        resolve_bearer_token(pending)  # type: ignore[arg-type]
+    pending.close()
+
+
+@pytest.mark.asyncio
+async def test_async_bearer_resolution_accepts_a_deferred_caller_value() -> None:
+    from zenture._mcp.transport import resolve_async_bearer_token
+
+    async def provider() -> str:
+        return "opaque"
+
+    assert await resolve_async_bearer_token(provider) == "opaque"
+    with pytest.raises(ValueError, match="bounded"):
+        await resolve_async_bearer_token(" ")
+    with pytest.raises(ValueError, match="bounded"):
+        await resolve_async_bearer_token("x" * 4097)
 
 
 @pytest.mark.asyncio

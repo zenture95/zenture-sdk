@@ -98,9 +98,11 @@ class McpArtifactRequest(SDKBaseModel):
     byte_size: int = Field(ge=1, le=10 * 1024 * 1024)
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
 
-    @field_validator("content_hash")
+    @field_validator("content_hash", mode="before")
     @classmethod
-    def _hash(cls, value: str) -> str:
+    def _hash(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("content_hash must be a lowercase SHA-256 digest")
         normalized = value.strip().lower()
         if _SHA256.fullmatch(normalized) is None:
             raise ValueError("content_hash must be a lowercase SHA-256 digest")
