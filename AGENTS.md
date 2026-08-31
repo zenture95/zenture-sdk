@@ -77,6 +77,13 @@ When adding or changing a resource:
 - Add sync and async resource tests using `httpx.MockTransport`.
 - Keep examples and docs aligned with the public surface.
 
+When a new Engine capability is intended for client consumption, extend this
+repository's canonical contract models and both peer surfaces: the API
+resource and the opt-in MCP adapter. Add sync/async parity and cross-channel
+acceptance tests here before any later `zenture-client` promotion; do not create
+a workspace-only client duplicate or move Engine/business authority into the
+SDK.
+
 ## Required Commands
 
 ```bash
