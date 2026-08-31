@@ -15,7 +15,13 @@ from zenture._contract import (
     ListRunsResponse,
     PublicRunResponse,
 )
-from zenture._mcp import AsyncMcpClient, McpClient, McpEndpoint, McpRunRead
+from zenture._mcp import (
+    PRODUCT_TOOL_NAMES,
+    AsyncMcpClient,
+    McpClient,
+    McpEndpoint,
+    McpRunRead,
+)
 from zenture.errors import (
     ZentureMCPDependencyError,
     ZentureMCPError,
@@ -90,24 +96,18 @@ class ToolResult:
 
 
 class RecordingTransport:
-    def __init__(self, responses: dict[str, object]) -> None:
+    def __init__(
+        self,
+        responses: dict[str, object],
+        *,
+        tool_names: tuple[str, ...] = PRODUCT_TOOL_NAMES,
+    ) -> None:
         self.responses = responses
+        self.tool_names = tool_names
         self.calls: list[tuple[str, Mapping[str, object]]] = []
 
     def list_tools(self) -> object:
-        return {
-            "tools": [
-                {"name": name}
-                for name in (
-                    "run",
-                    "attach_artifact",
-                    "list_runs",
-                    "get_run",
-                    "cancel_run",
-                    "record_run_outcome",
-                )
-            ]
-        }
+        return {"tools": [{"name": name} for name in self.tool_names]}
 
     def call_tool(self, name: str, arguments: Mapping[str, object]) -> object:
         self.calls.append((name, arguments))
@@ -205,6 +205,11 @@ def test_sync_mcp_peer_maps_all_product_tools_to_canonical_models() -> None:
         "replay_cursor": "cursor_0",
         "replay_limit": 50,
     }
+    assert transport.calls[-1][1] == {
+        "run_id": RUN_ID,
+        "outcome": "used",
+        "finding_adjudications": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -267,6 +272,11 @@ def test_mcp_payloads_are_bounded_and_reject_sensitive_fields() -> None:
     with pytest.raises(ZentureMCPProtocolError):
         McpClient(transport).get_run(RUN_ID)
 
+    malformed_payload: object = {1: "invalid-key"}
+    malformed = RecordingTransport({"get_run": malformed_payload})
+    with pytest.raises(ZentureMCPProtocolError):
+        McpClient(malformed).get_run(RUN_ID)
+
 
 def test_mcp_endpoint_accepts_canonical_hosts_and_rejects_arbitrary_origins() -> None:
     assert McpEndpoint.from_value("https://mcp.zenture.app").url == "https://mcp.zenture.app/"
@@ -277,6 +287,18 @@ def test_mcp_endpoint_accepts_canonical_hosts_and_rejects_arbitrary_origins() ->
         McpEndpoint.from_value("https://untrusted.example/mcp")
     with pytest.raises(ValueError, match="HTTPS"):
         McpEndpoint.from_value("http://mcp.zenture.app")
+    with pytest.raises(ValueError, match="approved zenture origin"):
+        McpEndpoint("https://untrusted.example/")
+
+
+def test_mcp_tool_catalog_rejects_duplicate_names() -> None:
+    transport = RecordingTransport(
+        _responses(),
+        tool_names=(*PRODUCT_TOOL_NAMES, "run"),
+    )
+
+    with pytest.raises(ZentureMCPProtocolError, match="duplicate"):
+        McpClient(transport).require_product_tools()
 
 
 def test_sync_mcp_arguments_reject_invalid_run_and_unbounded_inputs() -> None:
@@ -311,8 +333,8 @@ async def test_official_streamable_transport_is_lazy_and_credential_scoped(
     observed: dict[str, object] = {}
 
     class StreamContext:
-        async def __aenter__(self) -> tuple[object, object, None]:
-            return object(), object(), None
+        async def __aenter__(self) -> tuple[object, object]:
+            return object(), object()
 
         async def __aexit__(self, *_exc_info: object) -> None:
             observed["stream_closed"] = True
@@ -337,6 +359,27 @@ async def test_official_streamable_transport_is_lazy_and_credential_scoped(
         async def call_tool(self, name: str, *, arguments: dict[str, object]) -> object:
             return _tool_result({"name": name, "arguments": arguments})
 
+    class Timeout:
+        def __init__(self, value: float, *, read: float) -> None:
+            self.value = value
+            self.read = read
+
+        def __eq__(self, other: object) -> bool:
+            return (
+                isinstance(other, Timeout) and self.value == other.value and self.read == other.read
+            )
+
+    class HttpClientContext:
+        def __init__(self, **kwargs: object) -> None:
+            observed["http_kwargs"] = kwargs
+
+        async def __aenter__(self) -> HttpClientContext:
+            observed["http_opened"] = True
+            return self
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            observed["http_closed"] = True
+
     def import_module(name: str) -> object:
         requested.append(name)
         if name == "mcp":
@@ -344,10 +387,12 @@ async def test_official_streamable_transport_is_lazy_and_credential_scoped(
         if name == "mcp.client.streamable_http":
 
             def streamablehttp_client(*_args: object, **kwargs: object) -> StreamContext:
-                observed["transport_kwargs"] = kwargs
+                observed["stream_kwargs"] = kwargs
                 return StreamContext()
 
-            return SimpleNamespace(streamablehttp_client=streamablehttp_client)
+            return SimpleNamespace(streamable_http_client=streamablehttp_client)
+        if name == "httpx2":
+            return SimpleNamespace(AsyncClient=HttpClientContext, Timeout=Timeout)
         raise AssertionError(name)
 
     monkeypatch.setattr(importlib, "import_module", import_module)
@@ -357,14 +402,18 @@ async def test_official_streamable_transport_is_lazy_and_credential_scoped(
     ) as transport:
         await transport.list_tools()
 
-    assert requested == ["mcp", "mcp.client.streamable_http"]
+    assert requested == ["mcp", "mcp.client.streamable_http", "httpx2"]
     assert observed["initialized"] is True
     assert observed["session_closed"] is True
     assert observed["stream_closed"] is True
-    assert observed["transport_kwargs"] == {
+    assert observed["http_kwargs"] == {
         "headers": {"Authorization": "Bearer opaque"},
-        "timeout": 30.0,
+        "timeout": Timeout(30.0, read=30.0),
+        "follow_redirects": False,
     }
+    stream_kwargs = observed["stream_kwargs"]
+    assert isinstance(stream_kwargs, dict)
+    assert "http_client" in stream_kwargs
 
 
 @pytest.mark.asyncio

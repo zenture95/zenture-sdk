@@ -25,6 +25,7 @@ def test_mcp_import_surface_is_explicit_and_internal_until_terminal_cutover() ->
     source = (ROOT / "src" / "zenture" / "_mcp" / "__init__.py").read_text(encoding="utf-8")
     exports = source.split("__all__ = ", 1)[1]
     assert json.loads(exports.replace("'", '"')) == [
+        "PRODUCT_TOOL_NAMES",
         "AsyncMcpClient",
         "McpClient",
         "McpEndpoint",

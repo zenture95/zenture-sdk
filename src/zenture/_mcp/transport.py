@@ -93,18 +93,21 @@ async def open_streamable_http_transport(
     try:
         mcp_module = importlib.import_module("mcp")
         streamable_http_module = importlib.import_module("mcp.client.streamable_http")
+        httpx2_module = importlib.import_module("httpx2")
         client_session = mcp_module.ClientSession
-        streamablehttp_client = streamable_http_module.streamablehttp_client
+        streamablehttp_client = streamable_http_module.streamable_http_client
+        async_client = httpx2_module.AsyncClient
+        timeout_type = httpx2_module.Timeout
     except (ImportError, AttributeError) as exc:
         raise ZentureMCPDependencyError() from exc
 
     try:
-        async with streamablehttp_client(
-            target.url,
+        async with async_client(
             headers={"Authorization": f"Bearer {token}"},
-            timeout=timeout,
-        ) as streams:
-            read_stream, write_stream, *_ = streams
+            timeout=timeout_type(timeout, read=timeout),
+            follow_redirects=False,
+        ) as http_client, streamablehttp_client(target.url, http_client=http_client) as streams:
+            read_stream, write_stream = streams
             async with client_session(read_stream, write_stream) as session:
                 await session.initialize()
                 yield _OfficialAsyncMcpTransport(session)

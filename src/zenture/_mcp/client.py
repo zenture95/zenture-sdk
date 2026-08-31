@@ -86,6 +86,8 @@ def _validate_safe_payload(value: object) -> dict[str, object]:
     def walk(node: object) -> None:
         node_mapping = _mapping(node)
         if node_mapping is not None:
+            if any(type(key) is not str for key in node_mapping):
+                raise ZentureMCPProtocolError("invalid_result_key")
             if any(key.lower() in _FORBIDDEN_KEYS for key in node_mapping):
                 raise ZentureMCPProtocolError("forbidden_result_field")
             for child in node_mapping.values():
@@ -181,6 +183,8 @@ def _tool_names(result: object) -> tuple[str, ...]:
         name = tool_mapping.get("name") if tool_mapping is not None else getattr(tool, "name", None)
         if not isinstance(name, str) or _TOOL_NAME.fullmatch(name) is None:
             raise ZentureMCPProtocolError("invalid_tool_catalog")
+        if name in names:
+            raise ZentureMCPProtocolError("duplicate_tool_name")
         names.append(name)
         if len(names) > 128:
             raise ZentureMCPProtocolError("tool_catalog_too_large")
@@ -366,14 +370,12 @@ class McpClient:
         run_id: str,
         *,
         outcome: Literal["used", "edited", "rejected", "escalated", "not_sure"],
-        outcome_ref: str | None = None,
         finding_adjudications: Sequence[dict[str, str]] | None = None,
         edited_artifact_ref: str | None = None,
     ) -> PublicRunResponse:
         request = McpOutcomeRequest(
             run_id=run_id,
             outcome=outcome,
-            outcome_ref=outcome_ref,
             finding_adjudications=tuple(
                 McpFindingAdjudication.model_validate(item)
                 for item in (finding_adjudications or ())
@@ -530,14 +532,12 @@ class AsyncMcpClient:
         run_id: str,
         *,
         outcome: Literal["used", "edited", "rejected", "escalated", "not_sure"],
-        outcome_ref: str | None = None,
         finding_adjudications: Sequence[dict[str, str]] | None = None,
         edited_artifact_ref: str | None = None,
     ) -> PublicRunResponse:
         request = McpOutcomeRequest(
             run_id=run_id,
             outcome=outcome,
-            outcome_ref=outcome_ref,
             finding_adjudications=tuple(
                 McpFindingAdjudication.model_validate(item)
                 for item in (finding_adjudications or ())

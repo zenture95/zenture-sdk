@@ -56,28 +56,38 @@ class McpEndpoint:
 
     url: str
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "url", _normalize_endpoint(self.url))
+
     @classmethod
     def from_value(cls, value: object) -> McpEndpoint:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("MCP endpoint must be a non-empty URL")
-        parsed = urlsplit(value.strip())
-        hostname = parsed.hostname.lower() if parsed.hostname is not None else None
-        if hostname not in _CANONICAL_MCP_HOSTS:
-            raise ValueError("MCP endpoint host is not an approved zenture origin")
-        is_loopback = hostname in {"localhost", "127.0.0.1", "::1"}
-        if parsed.scheme != "https" and not (is_loopback and parsed.scheme == "http"):
-            raise ValueError("MCP endpoint must use HTTPS except for loopback development")
-        if parsed.username is not None or parsed.password is not None:
-            raise ValueError("MCP endpoint must not include user information")
-        if parsed.query or parsed.fragment:
-            raise ValueError("MCP endpoint must not include query or fragment data")
-        if not is_loopback and parsed.port not in {None, 443}:
-            raise ValueError("hosted MCP endpoint must use the canonical HTTPS port")
-        path = parsed.path or "/"
-        if path != "/":
-            raise ValueError("MCP endpoint must target the hosted root transport")
-        normalized = urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
-        return cls(normalized)
+        return cls(_normalize_endpoint(value))
+
+
+def _normalize_endpoint(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("MCP endpoint must be a non-empty URL")
+    parsed = urlsplit(value.strip())
+    hostname = parsed.hostname.lower() if parsed.hostname is not None else None
+    if hostname not in _CANONICAL_MCP_HOSTS:
+        raise ValueError("MCP endpoint host is not an approved zenture origin")
+    is_loopback = hostname in {"localhost", "127.0.0.1", "::1"}
+    if parsed.scheme != "https" and not (is_loopback and parsed.scheme == "http"):
+        raise ValueError("MCP endpoint must use HTTPS except for loopback development")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("MCP endpoint must not include user information")
+    if parsed.query or parsed.fragment:
+        raise ValueError("MCP endpoint must not include query or fragment data")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("MCP endpoint port is invalid") from exc
+    if not is_loopback and port not in {None, 443}:
+        raise ValueError("hosted MCP endpoint must use the canonical HTTPS port")
+    path = parsed.path or "/"
+    if path != "/":
+        raise ValueError("MCP endpoint must target the hosted root transport")
+    return urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
 
 
 class McpArtifactRequest(SDKBaseModel):
@@ -160,7 +170,6 @@ class McpOutcomeRequest(SDKBaseModel):
     outcome: Literal["used", "edited", "rejected", "escalated", "not_sure"]
     finding_adjudications: tuple[McpFindingAdjudication, ...] = Field(default=(), max_length=20)
     edited_artifact_ref: str | None = Field(default=None, max_length=128)
-    outcome_ref: str | None = Field(default=None, max_length=256)
 
     @field_validator("run_id")
     @classmethod
