@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections import OrderedDict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -42,6 +44,7 @@ from zenture.errors import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
     from datetime import datetime
+    from typing import BinaryIO
 
     from zenture._transport import SyncTransport
 
@@ -65,6 +68,8 @@ _MAX_SEEN_EVENT_IDS = 1_024
 _SYNC_STREAM_STOP_POLL_INTERVAL = 0.25
 _SYNC_STREAM_HEARTBEAT_INTERVAL = 15.0
 _MIN_STREAM_CHECKPOINT_BACKOFF = 0.01
+_MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
+_ARTIFACT_CHUNK_SIZE = 64 * 1024
 
 
 def _is_terminal_status(status: RunStatus) -> bool:
@@ -198,6 +203,7 @@ def _sync_stream_timeout(
     if deadline is None:
         return _SYNC_STREAM_STOP_POLL_INTERVAL if callable(stop) else None
     remaining = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
+    assert remaining is not None
     if not callable(stop):
         return min(remaining, _SYNC_STREAM_HEARTBEAT_INTERVAL)
     return min(remaining, _SYNC_STREAM_STOP_POLL_INTERVAL)
@@ -216,6 +222,90 @@ def _is_stream_read_timeout(error: Exception) -> bool:
 
     return isinstance(error, ZentureTransportError) and isinstance(
         error.__cause__, httpx.ReadTimeout
+    )
+
+
+def _required_artifact_size(byte_size: int | None) -> int:
+    if type(byte_size) is not int:
+        raise ValueError("byte_size is required for streaming content")
+    if byte_size < 1 or byte_size > _MAX_ARTIFACT_BYTES:
+        raise ValueError("byte_size must be between 1 and 10485760")
+    return byte_size
+
+
+def _validated_sync_artifact_chunks(
+    source: object, *, expected_size: int, expected_hash: str
+) -> Iterator[bytes]:
+    digest = hashlib.sha256()
+    total = 0
+    read = getattr(source, "read", None)
+    if callable(read):
+        chunks = iter(lambda: read(_ARTIFACT_CHUNK_SIZE), b"")
+    else:
+        try:
+            chunks = iter(cast("Iterable[object]", source))
+        except TypeError as exc:
+            raise ValueError("content must be bytes, an iterable, or a binary file") from exc
+
+    for chunk in chunks:
+        if not isinstance(chunk, bytes):
+            raise ValueError("content chunks must be bytes")
+        total += len(chunk)
+        if total > expected_size:
+            raise ValueError("content exceeds declared byte_size")
+        digest.update(chunk)
+        yield chunk
+
+    if total != expected_size:
+        raise ValueError("content length does not match declared byte_size")
+    if digest.hexdigest() != expected_hash:
+        raise ValueError("content_hash does not match content")
+
+
+def _prepare_sync_artifact_content(
+    content: object,
+    *,
+    byte_size: int | None,
+    file_name: str,
+    mime_type: str,
+    upload_id: str,
+    content_hash: str,
+) -> tuple[object, int, bool]:
+    if isinstance(content, bytes):
+        if not content:
+            raise ValueError("content must be non-empty bytes")
+        upload_size = len(content)
+        if byte_size is not None and (type(byte_size) is not int or byte_size != upload_size):
+            raise ValueError("byte_size does not match content")
+        ArtifactUploadRequest(
+            upload_id=upload_id,
+            file_name=file_name,
+            mime_type=mime_type,
+            byte_size=upload_size,
+            content_hash=content_hash,
+        )
+        if hashlib.sha256(content).hexdigest() != content_hash:
+            raise ValueError("content_hash does not match content")
+        return content, upload_size, True
+
+    if isinstance(content, (bytearray, memoryview, str)):
+        raise ValueError("content must be bytes, an iterable, or a binary file")
+    upload_size = _required_artifact_size(byte_size)
+    ArtifactUploadRequest(
+        upload_id=upload_id,
+        file_name=file_name,
+        mime_type=mime_type,
+        byte_size=upload_size,
+        content_hash=content_hash,
+    )
+    if not callable(getattr(content, "read", None)) and not isinstance(content, Iterable):
+        raise ValueError("content must be bytes, an iterable, or a binary file")
+    return (
+        _validated_sync_artifact_chunks(
+            content, expected_size=upload_size, expected_hash=content_hash
+        ),
+        upload_size,
+        False,
     )
 
 
@@ -488,17 +578,17 @@ class RunsResource:
         upload_id: str,
         file_name: str,
         mime_type: str,
-        content: bytes,
+        content: bytes | Iterable[bytes] | BinaryIO,
+        byte_size: int | None = None,
         content_hash: str,
         idempotency_key: str,
     ) -> ArtifactUploadResponse:
-        if not isinstance(content, bytes) or not content:
-            raise ValueError("content must be non-empty bytes")
-        ArtifactUploadRequest(
-            upload_id=upload_id,
+        upload_content, upload_size, replayable = _prepare_sync_artifact_content(
+            content,
+            byte_size=byte_size,
             file_name=file_name,
             mime_type=mime_type,
-            byte_size=len(content),
+            upload_id=upload_id,
             content_hash=content_hash,
         )
         headers = idempotency_headers(idempotency_key)
@@ -506,13 +596,15 @@ class RunsResource:
             {
                 "Content-Type": mime_type,
                 "X-Upload-ID": upload_id,
+                "Content-Length": str(upload_size),
             }
         )
         payload = self._transport.request_json(
             "POST",
             "/run-artifacts",
             headers=headers,
-            content=content,
+            content=upload_content,
+            replayable=replayable,
         )
         return parse_response(ArtifactUploadResponse, payload)
 

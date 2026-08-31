@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import inspect
 import json
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from zenture._contract import (
     ArtifactUploadRequest,
@@ -25,12 +27,14 @@ from zenture._contract import (
 )
 from zenture._resources._utils import idempotency_headers, parse_response, path_segment
 from zenture._resources.runs import (
+    _ARTIFACT_CHUNK_SIZE,
     _add_wait_header,
     _is_retryable_stream_error,
     _is_terminal_status,
     _is_terminal_stream_message,
     _phase_key,
     _remaining_stream_timeout,
+    _required_artifact_size,
     _run_list_params,
     _RunEventStreamState,
 )
@@ -42,10 +46,96 @@ from zenture.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Sequence
+    from collections.abc import AsyncIterable, AsyncIterator, Callable, Sequence
     from datetime import datetime
+    from typing import BinaryIO
 
     from zenture._transport import AsyncTransport
+
+
+async def _validated_async_artifact_chunks(
+    source: object, *, expected_size: int, expected_hash: str
+) -> AsyncIterator[bytes]:
+    digest = hashlib.sha256()
+    total = 0
+    read = getattr(source, "read", None)
+    if callable(read):
+        while True:
+            chunk = read(_ARTIFACT_CHUNK_SIZE)
+            if inspect.isawaitable(chunk):
+                chunk = await chunk
+            if chunk == b"":
+                break
+            yield_chunk = chunk
+            if not isinstance(yield_chunk, bytes):
+                raise ValueError("content chunks must be bytes")
+            total += len(yield_chunk)
+            if total > expected_size:
+                raise ValueError("content exceeds declared byte_size")
+            digest.update(yield_chunk)
+            yield yield_chunk
+    else:
+        async_source = cast("AsyncIterable[object]", source)
+        async for chunk in async_source:
+            if not isinstance(chunk, bytes):
+                raise ValueError("content chunks must be bytes")
+            total += len(chunk)
+            if total > expected_size:
+                raise ValueError("content exceeds declared byte_size")
+            digest.update(chunk)
+            yield chunk
+
+    if total != expected_size:
+        raise ValueError("content length does not match declared byte_size")
+    if digest.hexdigest() != expected_hash:
+        raise ValueError("content_hash does not match content")
+
+
+def _prepare_async_artifact_content(
+    content: object,
+    *,
+    byte_size: int | None,
+    file_name: str,
+    mime_type: str,
+    upload_id: str,
+    content_hash: str,
+) -> tuple[object, int, bool]:
+    if isinstance(content, bytes):
+        if not content:
+            raise ValueError("content must be non-empty bytes")
+        upload_size = len(content)
+        if byte_size is not None and (type(byte_size) is not int or byte_size != upload_size):
+            raise ValueError("byte_size does not match content")
+        ArtifactUploadRequest(
+            upload_id=upload_id,
+            file_name=file_name,
+            mime_type=mime_type,
+            byte_size=upload_size,
+            content_hash=content_hash,
+        )
+        if hashlib.sha256(content).hexdigest() != content_hash:
+            raise ValueError("content_hash does not match content")
+        return content, upload_size, True
+
+    if isinstance(content, (bytearray, memoryview, str)):
+        raise ValueError("content must be bytes, an async iterable, or a binary file")
+    upload_size = _required_artifact_size(byte_size)
+    ArtifactUploadRequest(
+        upload_id=upload_id,
+        file_name=file_name,
+        mime_type=mime_type,
+        byte_size=upload_size,
+        content_hash=content_hash,
+    )
+    if not callable(getattr(content, "read", None)) and not hasattr(content, "__aiter__"):
+        raise ValueError("content must be bytes, an async iterable, or a binary file")
+    return (
+        _validated_async_artifact_chunks(
+            content, expected_size=upload_size, expected_hash=content_hash
+        ),
+        upload_size,
+        False,
+    )
 
 
 class AsyncRunsResource:
@@ -308,26 +398,33 @@ class AsyncRunsResource:
         upload_id: str,
         file_name: str,
         mime_type: str,
-        content: bytes,
+        content: bytes | AsyncIterable[bytes] | BinaryIO,
+        byte_size: int | None = None,
         content_hash: str,
         idempotency_key: str,
     ) -> ArtifactUploadResponse:
-        if not isinstance(content, bytes) or not content:
-            raise ValueError("content must be non-empty bytes")
-        ArtifactUploadRequest(
-            upload_id=upload_id,
+        upload_content, upload_size, replayable = _prepare_async_artifact_content(
+            content,
+            byte_size=byte_size,
             file_name=file_name,
             mime_type=mime_type,
-            byte_size=len(content),
+            upload_id=upload_id,
             content_hash=content_hash,
         )
         headers = idempotency_headers(idempotency_key)
-        headers.update({"Content-Type": mime_type, "X-Upload-ID": upload_id})
+        headers.update(
+            {
+                "Content-Type": mime_type,
+                "X-Upload-ID": upload_id,
+                "Content-Length": str(upload_size),
+            }
+        )
         payload = await self._transport.request_json(
             "POST",
             "/run-artifacts",
             headers=headers,
-            content=content,
+            content=upload_content,
+            replayable=replayable,
         )
         return parse_response(ArtifactUploadResponse, payload)
 

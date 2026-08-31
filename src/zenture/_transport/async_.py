@@ -87,7 +87,8 @@ class AsyncTransport:
         headers: dict[str, str] | None = None,
         json: object | None = None,
         params: dict[str, str] | None = None,
-        content: bytes | None = None,
+        content: object | None = None,
+        replayable: bool = True,
     ) -> object:
         """Request a JSON response and map public API errors."""
 
@@ -99,6 +100,7 @@ class AsyncTransport:
             json=json,
             params=params,
             content=content,
+            replayable=replayable,
         )
         response_error: ZentureResponseError | None = None
         try:
@@ -157,7 +159,8 @@ class AsyncTransport:
         headers: dict[str, str] | None,
         json: object | None,
         params: dict[str, str] | None,
-        content: bytes | None = None,
+        content: object | None = None,
+        replayable: bool = True,
     ) -> httpx.Response:
         request_headers = self._request_headers(auth=auth)
         if headers is not None:
@@ -184,7 +187,7 @@ class AsyncTransport:
                     method=method,
                     status_code=503,
                     error_code="dependency_unavailable",
-                    has_idempotency_key=has_idempotency_key(request_headers),
+                    has_idempotency_key=has_idempotency_key(request_headers) and replayable,
                     attempt=attempt,
                     max_attempts=max_attempts,
                 )
@@ -226,7 +229,7 @@ class AsyncTransport:
                 method=method,
                 status_code=response.status_code,
                 error_code=extract_error_code(payload_dict),
-                has_idempotency_key=has_idempotency_key(request_headers),
+                has_idempotency_key=has_idempotency_key(request_headers) and replayable,
                 attempt=attempt,
                 max_attempts=max_attempts,
             )
