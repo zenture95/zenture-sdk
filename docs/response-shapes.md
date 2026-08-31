@@ -31,6 +31,16 @@ The committed OpenAPI artifact remains the contract source of truth; this file i
 | `GET` | `/v1/limits` | `200` | `client.limits.get()` | `LimitsResponse` |
 | `GET` | `/v1/models` | `200` | `client.models.list(mode=None | "single" | "multi")` | `PublicModelListResponse` |
 | `GET` | `/v1/operations/{operation_id}` | `200` | `client.operations.get(...)`, `client.operations.wait(...)` | `PublicOperationResponse` |
+| `POST` | `/v1/run-artifacts` | `201` | `httpx` direct call | `PublicRunArtifactResponse` |
+| `POST` | `/v1/run-artifacts/signed-upload` | `200` | `httpx` direct call | `PublicSignedUploadResponse` |
+| `GET` | `/v1/runs` | `200` | `httpx` direct call | `PublicRunCollectionResponse` |
+| `POST` | `/v1/runs` | `200, 202` | `httpx` direct call | `PublicRunResponse` |
+| `POST` | `/v1/runs/prepare` | `200` | `httpx` direct call | `PrepareRunResponse` |
+| `GET` | `/v1/runs/{run_id}` | `200` | `httpx` direct call | `PublicRunResponse` |
+| `POST` | `/v1/runs/{run_id}/cancel` | `200` | `httpx` direct call | `PublicRunResponse` |
+| `GET` | `/v1/runs/{run_id}/events` | `200` | `httpx` direct call | `PublicRunEventsResponse` |
+| `GET` | `/v1/runs/{run_id}/events/stream` | `200` | `httpx` direct call | `string` |
+| `POST` | `/v1/runs/{run_id}/outcome` | `200` | `httpx` direct call | `PublicRunOutcomeResponse` |
 | `GET` | `/v1/usage` | `200` | `client.usage.get(...)` | `PublicUsageResponse` |
 | `GET` | `/v1/wallet` | `200` | `client.wallet.get()` | `PublicWalletResponse` |
 
@@ -567,6 +577,603 @@ Schema: `PublicOperationResponse`
 }
 ```
 
+### `POST /v1/run-artifacts`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicRunArtifactResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:run`
+
+Idempotency: `required`
+
+Request body schema: `string`
+
+Request body example:
+
+```json
+"example"
+```
+
+Response `201` as `application/json`:
+
+Schema: `PublicRunArtifactResponse`
+
+```json
+{
+  "artifact_ref": "example",
+  "byte_size": 1,
+  "content_hash": "example",
+  "content_type": "example"
+}
+```
+
+### `POST /v1/run-artifacts/signed-upload`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicSignedUploadResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:run`
+
+Idempotency: `required`
+
+Request body schema: `SignedUploadRequest`
+
+Request body example:
+
+```json
+{
+  "byte_size": 1,
+  "content_hash": "example",
+  "file_name": "example",
+  "mime_type": "example"
+}
+```
+
+Response `200` as `application/json`:
+
+Schema: `PublicSignedUploadResponse`
+
+```json
+{
+  "expires_at": "example",
+  "upload_id": "example",
+  "upload_url": null
+}
+```
+
+### `GET /v1/runs`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicRunCollectionResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:read`
+
+Idempotency: `not required`
+
+Request body: none
+
+Response `200` as `application/json`:
+
+Schema: `PublicRunCollectionResponse`
+
+```json
+{
+  "has_more": true,
+  "next_cursor": null,
+  "runs": [
+    {
+      "created_at": "2026-06-15T10:00:00Z",
+      "decision": null,
+      "profile": "fast",
+      "run_id": "example",
+      "status": "active",
+      "task_summary_ref": null,
+      "updated_at": "2026-06-15T10:00:30Z"
+    }
+  ]
+}
+```
+
+### `POST /v1/runs`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicRunResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:run`
+
+Idempotency: `required`
+
+Request body schema: `CreateRunRequest`
+
+Request body example:
+
+```json
+{
+  "proposal_hash": "example",
+  "proposal_id": "example"
+}
+```
+
+Response `200` as `application/json`:
+
+Schema: `PublicRunResponse`
+
+```json
+{
+  "acceptance_decision": "ready",
+  "artifact_refs": [
+    "example"
+  ],
+  "billing_summary": {},
+  "cancellation_requested": true,
+  "capability_coverage": {
+    "available_refs": [
+      "example"
+    ],
+    "limitation_refs": [
+      "example"
+    ],
+    "unavailable_refs": [
+      "example"
+    ]
+  },
+  "completed_at": null,
+  "created_at": "2026-06-15T10:00:00Z",
+  "event_cursor": null,
+  "family": "knowledge",
+  "generation": 1,
+  "limitations": [
+    "example"
+  ],
+  "next_action": null,
+  "profile": "fast",
+  "queue": {
+    "estimate_as_of": null,
+    "estimated_completion_seconds": null,
+    "estimated_start_seconds": null,
+    "jobs_ahead": 1,
+    "queue_reason": "example"
+  },
+  "reason_code": null,
+  "run_id": "example",
+  "run_insight_ref": null,
+  "started_at": null,
+  "status": "created",
+  "task_contract_summary": {
+    "requirement_count": 1,
+    "summary_ref": "example",
+    "work_type": "example"
+  },
+  "updated_at": "2026-06-15T10:00:30Z",
+  "usage_summary": {},
+  "work_type": "example"
+}
+```
+
+Response `202` as `application/json`:
+
+Schema: `PublicRunResponse`
+
+```json
+{
+  "acceptance_decision": "ready",
+  "artifact_refs": [
+    "example"
+  ],
+  "billing_summary": {},
+  "cancellation_requested": true,
+  "capability_coverage": {
+    "available_refs": [
+      "example"
+    ],
+    "limitation_refs": [
+      "example"
+    ],
+    "unavailable_refs": [
+      "example"
+    ]
+  },
+  "completed_at": null,
+  "created_at": "2026-06-15T10:00:00Z",
+  "event_cursor": null,
+  "family": "knowledge",
+  "generation": 1,
+  "limitations": [
+    "example"
+  ],
+  "next_action": null,
+  "profile": "fast",
+  "queue": {
+    "estimate_as_of": null,
+    "estimated_completion_seconds": null,
+    "estimated_start_seconds": null,
+    "jobs_ahead": 1,
+    "queue_reason": "example"
+  },
+  "reason_code": null,
+  "run_id": "example",
+  "run_insight_ref": null,
+  "started_at": null,
+  "status": "created",
+  "task_contract_summary": {
+    "requirement_count": 1,
+    "summary_ref": "example",
+    "work_type": "example"
+  },
+  "updated_at": "2026-06-15T10:00:30Z",
+  "usage_summary": {},
+  "work_type": "example"
+}
+```
+
+### `POST /v1/runs/prepare`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PrepareRunResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:run`
+
+Idempotency: `required`
+
+Request body schema: `PrepareRunRequest`
+
+Request body example:
+
+```json
+{
+  "artifact": {
+    "type": "example",
+    "value": "example"
+  },
+  "profile": "fast",
+  "task": "example"
+}
+```
+
+Response `200` as `application/json`:
+
+Schema: `PrepareRunResponse`
+
+```json
+{
+  "estimated_credits": null,
+  "expected_duration_seconds": 1,
+  "expires_at": "example",
+  "guest_slot_cost": null,
+  "inferred_work_type": "example",
+  "maximum_credits": null,
+  "planned_checks": [
+    "example"
+  ],
+  "proposal_hash": "example",
+  "proposal_id": "example",
+  "proposal_version": 1,
+  "start_admissible": true,
+  "task_contract_summary": {
+    "requirement_count": 1,
+    "summary_ref": "example",
+    "work_type": "example"
+  },
+  "unavailable_checks": [
+    "example"
+  ]
+}
+```
+
+### `GET /v1/runs/{run_id}`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicRunResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:read`
+
+Idempotency: `not required`
+
+Request body: none
+
+Response `200` as `application/json`:
+
+Schema: `PublicRunResponse`
+
+```json
+{
+  "acceptance_decision": "ready",
+  "artifact_refs": [
+    "example"
+  ],
+  "billing_summary": {},
+  "cancellation_requested": true,
+  "capability_coverage": {
+    "available_refs": [
+      "example"
+    ],
+    "limitation_refs": [
+      "example"
+    ],
+    "unavailable_refs": [
+      "example"
+    ]
+  },
+  "completed_at": null,
+  "created_at": "2026-06-15T10:00:00Z",
+  "event_cursor": null,
+  "family": "knowledge",
+  "generation": 1,
+  "limitations": [
+    "example"
+  ],
+  "next_action": null,
+  "profile": "fast",
+  "queue": {
+    "estimate_as_of": null,
+    "estimated_completion_seconds": null,
+    "estimated_start_seconds": null,
+    "jobs_ahead": 1,
+    "queue_reason": "example"
+  },
+  "reason_code": null,
+  "run_id": "example",
+  "run_insight_ref": null,
+  "started_at": null,
+  "status": "created",
+  "task_contract_summary": {
+    "requirement_count": 1,
+    "summary_ref": "example",
+    "work_type": "example"
+  },
+  "updated_at": "2026-06-15T10:00:30Z",
+  "usage_summary": {},
+  "work_type": "example"
+}
+```
+
+### `POST /v1/runs/{run_id}/cancel`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicRunResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:run`
+
+Idempotency: `required`
+
+Request body schema: `CancelRunRequest`
+
+Request body example:
+
+```json
+{
+  "reason": "user_requested"
+}
+```
+
+Response `200` as `application/json`:
+
+Schema: `PublicRunResponse`
+
+```json
+{
+  "acceptance_decision": "ready",
+  "artifact_refs": [
+    "example"
+  ],
+  "billing_summary": {},
+  "cancellation_requested": true,
+  "capability_coverage": {
+    "available_refs": [
+      "example"
+    ],
+    "limitation_refs": [
+      "example"
+    ],
+    "unavailable_refs": [
+      "example"
+    ]
+  },
+  "completed_at": null,
+  "created_at": "2026-06-15T10:00:00Z",
+  "event_cursor": null,
+  "family": "knowledge",
+  "generation": 1,
+  "limitations": [
+    "example"
+  ],
+  "next_action": null,
+  "profile": "fast",
+  "queue": {
+    "estimate_as_of": null,
+    "estimated_completion_seconds": null,
+    "estimated_start_seconds": null,
+    "jobs_ahead": 1,
+    "queue_reason": "example"
+  },
+  "reason_code": null,
+  "run_id": "example",
+  "run_insight_ref": null,
+  "started_at": null,
+  "status": "created",
+  "task_contract_summary": {
+    "requirement_count": 1,
+    "summary_ref": "example",
+    "work_type": "example"
+  },
+  "updated_at": "2026-06-15T10:00:30Z",
+  "usage_summary": {},
+  "work_type": "example"
+}
+```
+
+### `GET /v1/runs/{run_id}/events`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicRunEventsResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:read`
+
+Idempotency: `not required`
+
+Request body: none
+
+Response `200` as `application/json`:
+
+Schema: `PublicRunEventsResponse`
+
+```json
+{
+  "events": [
+    {
+      "estimated_completion_seconds": {},
+      "estimated_start_seconds": {},
+      "event_cursor": "example",
+      "event_id": "example",
+      "jobs_ahead": 1,
+      "message_key": "example",
+      "phase": "queued",
+      "progress_percent": 1,
+      "run_id": "example",
+      "sequence": 1,
+      "status": "queued",
+      "terminal_refs": [
+        "example"
+      ],
+      "type": "run.event"
+    }
+  ],
+  "has_more": true,
+  "next_cursor": null
+}
+```
+
+### `GET /v1/runs/{run_id}/events/stream`
+
+SDK surface: `httpx` direct call
+
+SDK model: `string`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:read`
+
+Idempotency: `not required`
+
+Request body: none
+
+Response `200` as `text/event-stream`:
+
+Schema: `string`
+
+```markdown
+example
+```
+
+### `POST /v1/runs/{run_id}/outcome`
+
+SDK surface: `httpx` direct call
+
+SDK model: `PublicRunOutcomeResponse`
+
+Auth mode: `api_token`
+
+Scopes: `evaluation:run`
+
+Idempotency: `required`
+
+Request body schema: `RunOutcomeRequest`
+
+Request body example:
+
+```json
+{
+  "edited_artifact_ref": null,
+  "finding_adjudications": [
+    {
+      "finding_ref": "example",
+      "outcome": "confirmed"
+    }
+  ],
+  "outcome": "used"
+}
+```
+
+Response `200` as `application/json`:
+
+Schema: `PublicRunOutcomeResponse`
+
+```json
+{
+  "acceptance_decision": "ready",
+  "artifact_refs": [
+    "example"
+  ],
+  "billing_summary": {},
+  "cancellation_requested": true,
+  "capability_coverage": {
+    "available_refs": [
+      "example"
+    ],
+    "limitation_refs": [
+      "example"
+    ],
+    "unavailable_refs": [
+      "example"
+    ]
+  },
+  "completed_at": null,
+  "created_at": "2026-06-15T10:00:00Z",
+  "event_cursor": null,
+  "family": "knowledge",
+  "generation": 1,
+  "limitations": [
+    "example"
+  ],
+  "next_action": null,
+  "profile": "fast",
+  "queue": {
+    "estimate_as_of": null,
+    "estimated_completion_seconds": null,
+    "estimated_start_seconds": null,
+    "jobs_ahead": 1,
+    "queue_reason": "example"
+  },
+  "reason_code": null,
+  "run_id": "example",
+  "run_insight_ref": null,
+  "started_at": null,
+  "status": "created",
+  "task_contract_summary": {
+    "requirement_count": 1,
+    "summary_ref": "example",
+    "work_type": "example"
+  },
+  "updated_at": "2026-06-15T10:00:30Z",
+  "usage_summary": {},
+  "work_type": "example"
+}
+```
+
 ### `GET /v1/usage`
 
 SDK surface: `client.usage.get(...)`
@@ -649,5 +1256,27 @@ Stable public gateway error codes are:
 - `internal_error`
 - `idempotency_conflict`
 - `operation_expired`
+- `proposal_expired`
+- `proposal_hash_mismatch`
+- `account_required`
+- `artifact_required`
+- `artifact_ambiguous`
+- `artifact_unavailable`
+- `artifact_not_found`
+- `artifact_expired`
+- `artifact_type_unsupported`
+- `artifact_processing_unavailable`
+- `prepare_rate_limited`
+- `prepare_capacity_unavailable`
+- `too_many_outstanding_runs`
+- `capacity_temporarily_unavailable`
+- `maintenance_active`
+- `engine_unavailable_timeout`
+- `capability_unavailable`
+- `run_not_found`
+- `run_terminal`
+- `cancel_conflict`
+- `budget_ceiling_exceeded`
+- `execution_failed`
 
 The SDK maps known public error codes to typed exceptions where available and keeps future unknown safe error codes as `ZentureAPIError` without exposing API tokens, bearer headers, prompts, or other secrets in exception strings.
