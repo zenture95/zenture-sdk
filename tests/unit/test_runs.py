@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from zenture import AsyncZenture, Zenture
 from zenture._contract import PublicRunEvent, PublicRunHeartbeat
+from zenture._resources.runs import _RunEventStreamState
 from zenture.errors import (
     ZenturePollingStoppedError,
     ZenturePollingTimeoutError,
@@ -82,6 +85,16 @@ def _sse_error(*, event_id: str, sequence: int, retryable: bool) -> bytes:
         "terminal": not retryable,
     }
     return f"event: run.error\ndata: {json.dumps(payload)}\n\n".encode()
+
+
+def _sse_heartbeat(*, event_id: str, sequence: int) -> bytes:
+    payload = {
+        "type": "run.heartbeat",
+        "event_id": event_id,
+        "run_id": RUN_ID,
+        "sequence": sequence,
+    }
+    return f"event: run.heartbeat\ndata: {json.dumps(payload)}\n\n".encode()
 
 
 def _stream_response(*parts: bytes) -> httpx.Response:
@@ -525,3 +538,269 @@ async def test_async_run_resources_match_sync_event_surface() -> None:
 
     assert messages[0].status == "completed"
     await client.aclose()
+
+
+class _StopAwareSyncStream(httpx.SyncByteStream):
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __iter__(self):
+        yield _sse_heartbeat(event_id="heartbeat_aaa", sequence=1)
+        raise AssertionError("idle stream was read after caller stop")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _StopAwareAsyncStream(httpx.AsyncByteStream):
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def __aiter__(self):
+        yield _sse_heartbeat(event_id="heartbeat_aaa", sequence=1)
+        raise AssertionError("idle stream was read after caller stop")
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _IdleAsyncStream(httpx.AsyncByteStream):
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def __aiter__(self):
+        await asyncio.sleep(60.0)
+        yield b""
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def test_sync_iter_events_stops_before_reading_idle_stream() -> None:
+    requests: list[httpx.Request] = []
+    streams: list[_StopAwareSyncStream] = []
+    stop_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        stream = _StopAwareSyncStream()
+        streams.append(stream)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=stream,
+        )
+
+    def stop() -> bool:
+        nonlocal stop_calls
+        stop_calls += 1
+        return stop_calls > 1
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZenturePollingStoppedError):
+        list(client.runs.iter_events(RUN_ID, stop=stop, initial_interval=0.0, max_interval=0.0))
+
+    assert len(requests) == 1
+    assert streams[0].closed
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_stops_before_reading_idle_stream() -> None:
+    requests: list[httpx.Request] = []
+    streams: list[_StopAwareAsyncStream] = []
+    stop_calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        stream = _StopAwareAsyncStream()
+        streams.append(stream)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=stream,
+        )
+
+    def stop() -> bool:
+        nonlocal stop_calls
+        stop_calls += 1
+        return stop_calls > 1
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZenturePollingStoppedError):
+        [
+            message
+            async for message in client.runs.iter_events(
+                RUN_ID, stop=stop, initial_interval=0.0, max_interval=0.0
+            )
+        ]
+
+    assert len(requests) == 1
+    assert streams[0].closed
+    await client.aclose()
+
+
+def test_sync_iter_events_checks_timeout_after_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._resources.runs as runs_module
+
+    clock_values = iter((0.0, 0.0, 0.0, 1.0))
+    fake_time = SimpleNamespace(monotonic=lambda: next(clock_values))
+    monkeypatch.setattr(runs_module, "time", fake_time)
+    streams: list[_StopAwareSyncStream] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        stream = _StopAwareSyncStream()
+        streams.append(stream)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=stream,
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZenturePollingTimeoutError):
+        list(client.runs.iter_events(RUN_ID, timeout=1.0))
+
+    assert streams[0].closed
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_checks_timeout_after_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._resources.async_runs as async_runs_module
+    import zenture._resources.runs as runs_module
+
+    clock_values = iter((0.0, 0.0, 0.0, 1.0))
+    fake_time = SimpleNamespace(monotonic=lambda: next(clock_values))
+    monkeypatch.setattr(runs_module, "time", fake_time)
+    monkeypatch.setattr(async_runs_module, "time", fake_time)
+    streams: list[_StopAwareAsyncStream] = []
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        stream = _StopAwareAsyncStream()
+        streams.append(stream)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=stream,
+        )
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZenturePollingTimeoutError):
+        [message async for message in client.runs.iter_events(RUN_ID, timeout=1.0)]
+
+    assert streams[0].closed
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_interrupts_open_idle_stream() -> None:
+    streams: list[_IdleAsyncStream] = []
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        stream = _IdleAsyncStream()
+        streams.append(stream)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=stream,
+        )
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ZenturePollingTimeoutError):
+        [message async for message in client.runs.iter_events(RUN_ID, timeout=0.005)]
+
+    assert streams[0].closed
+    await client.aclose()
+
+
+def test_sync_iter_events_passes_remaining_timeout_to_stream() -> None:
+    read_timeouts: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        read_timeouts.append(request.extensions["timeout"]["read"])
+        return _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="completed",
+                event_cursor="cursor_aaa",
+            )
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    list(client.runs.iter_events(RUN_ID, timeout=5.0))
+
+    assert read_timeouts
+    assert 0 < read_timeouts[0] <= 5.0
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_passes_remaining_timeout_to_stream() -> None:
+    read_timeouts: list[float] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        read_timeouts.append(request.extensions["timeout"]["read"])
+        return _stream_response(
+            _sse_event(
+                event_id="event_aaa",
+                sequence=1,
+                status="completed",
+                event_cursor="cursor_aaa",
+            )
+        )
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    [message async for message in client.runs.iter_events(RUN_ID, timeout=5.0)]
+
+    assert read_timeouts
+    assert 0 < read_timeouts[0] <= 5.0
+    await client.aclose()
+
+
+def test_run_event_dedupe_memory_is_bounded_for_long_streams() -> None:
+    state = _RunEventStreamState(cursor=None, initial_interval=0.0, max_interval=0.0)
+
+    for sequence in range(1, 2_049):
+        state.accept(
+            PublicRunEvent.model_validate(
+                {
+                    "type": "run.event",
+                    "event_id": f"event_{sequence}",
+                    "run_id": RUN_ID,
+                    "sequence": sequence,
+                    "phase": "running",
+                    "status": "running",
+                    "message_key": "run.status.running",
+                    "event_cursor": f"cursor_{sequence}",
+                }
+            )
+        )
+
+    assert len(state.seen_event_ids) <= 1_024

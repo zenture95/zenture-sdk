@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +59,7 @@ _RETRYABLE_STREAM_ERROR_CODES = frozenset(
     {"capacity_unavailable", "dependency_unavailable", "internal_error", "rate_limited"}
 )
 _MAX_STREAM_CURSOR_CYCLES = 3
+_MAX_SEEN_EVENT_IDS = 1_024
 
 
 def _is_terminal_status(status: RunStatus) -> bool:
@@ -73,8 +75,8 @@ class _RunEventStreamState:
     cursor: str | None
     initial_interval: float
     max_interval: float
-    seen_event_ids: set[str] = field(default_factory=set)
-    seen_event_sequences: set[int] = field(default_factory=set)
+    seen_event_ids: OrderedDict[str, None] = field(default_factory=OrderedDict)
+    last_event_sequence: int | None = None
     no_progress_cycles: int = 0
     reconnect_interval: float = field(init=False)
 
@@ -85,24 +87,30 @@ class _RunEventStreamState:
         """Record a message and return ``(emit, cursor_progressed)``."""
 
         if isinstance(message, PublicRunEvent):
-            if (
-                message.event_id in self.seen_event_ids
-                or message.sequence in self.seen_event_sequences
+            if message.event_id in self.seen_event_ids or (
+                self.last_event_sequence is not None
+                and message.sequence <= self.last_event_sequence
             ):
                 return False, False
             previous_cursor = self.cursor
-            self.seen_event_ids.add(message.event_id)
-            self.seen_event_sequences.add(message.sequence)
+            self._remember_event_id(message.event_id)
+            self.last_event_sequence = message.sequence
             self.cursor = message.event_cursor
             return True, self.cursor != previous_cursor
 
         if isinstance(message, (PublicRunHeartbeat, PublicRunStreamError)):
             if message.event_id in self.seen_event_ids:
                 return False, False
-            self.seen_event_ids.add(message.event_id)
+            self._remember_event_id(message.event_id)
             return True, False
 
         return False, False
+
+    def _remember_event_id(self, event_id: str) -> None:
+        self.seen_event_ids[event_id] = None
+        self.seen_event_ids.move_to_end(event_id)
+        if len(self.seen_event_ids) > _MAX_SEEN_EVENT_IDS:
+            self.seen_event_ids.popitem(last=False)
 
     def finish_stream(self, *, progressed: bool) -> None:
         """Update reconnect backoff and fail closed on a cursor cycle."""
@@ -154,6 +162,15 @@ def _raise_if_stream_stopped(
         raise ZenturePollingStoppedError(operation_id=run_id)
     if deadline is not None and time.monotonic() >= deadline:
         raise ZenturePollingTimeoutError(operation_id=run_id)
+
+
+def _remaining_stream_timeout(*, run_id: str, deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ZenturePollingTimeoutError(operation_id=run_id)
+    return remaining
 
 
 class RunsResource:
@@ -300,8 +317,12 @@ class RunsResource:
                 headers["Last-Event-ID"] = state.cursor
             progressed = False
             try:
+                stream_timeout = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
                 with self._transport.stream(
-                    "GET", f"/runs/{path_segment(run_id)}/events/stream", headers=headers
+                    "GET",
+                    f"/runs/{path_segment(run_id)}/events/stream",
+                    headers=headers,
+                    timeout=stream_timeout,
                 ) as response:
                     for message in _parse_sse_events(response.iter_lines()):
                         emit, message_progressed = state.accept(message)
@@ -311,6 +332,7 @@ class RunsResource:
                         yield message
                         if _is_terminal_stream_message(message):
                             return
+                        _raise_if_stream_stopped(run_id=run_id, deadline=deadline, stop=stop)
                         if isinstance(message, PublicRunStreamError):
                             if message.retryable:
                                 break

@@ -30,6 +30,7 @@ from zenture._resources.runs import (
     _is_terminal_status,
     _is_terminal_stream_message,
     _phase_key,
+    _remaining_stream_timeout,
     _run_list_params,
     _RunEventStreamState,
 )
@@ -185,21 +186,34 @@ class AsyncRunsResource:
                 headers["Last-Event-ID"] = state.cursor
             progressed = False
             try:
-                async with self._transport.stream(
-                    "GET", f"/runs/{path_segment(run_id)}/events/stream", headers=headers
-                ) as response:
-                    async for message in _parse_sse_events_async(response.aiter_lines()):
-                        emit, message_progressed = state.accept(message)
-                        progressed = progressed or message_progressed
-                        if not emit:
-                            continue
-                        yield message
-                        if _is_terminal_stream_message(message):
-                            return
-                        if isinstance(message, PublicRunStreamError):
-                            if message.retryable:
-                                break
-                            return
+                stream_timeout = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
+                async with asyncio.timeout(stream_timeout):
+                    async with self._transport.stream(
+                        "GET",
+                        f"/runs/{path_segment(run_id)}/events/stream",
+                        headers=headers,
+                        timeout=stream_timeout,
+                    ) as response:
+                        async for message in _parse_sse_events_async(response.aiter_lines()):
+                            emit, message_progressed = state.accept(message)
+                            progressed = progressed or message_progressed
+                            if not emit:
+                                continue
+                            yield message
+                            if _is_terminal_stream_message(message):
+                                return
+                            if callable(stop) and stop():
+                                raise ZenturePollingStoppedError(operation_id=run_id)
+                            if deadline is not None and time.monotonic() >= deadline:
+                                raise ZenturePollingTimeoutError(operation_id=run_id)
+                            if isinstance(message, PublicRunStreamError):
+                                if message.retryable:
+                                    break
+                                return
+            except TimeoutError as exc:
+                if deadline is None:
+                    raise
+                raise ZenturePollingTimeoutError(operation_id=run_id) from exc
             except (ZentureAPIError, ZentureTransportError) as exc:
                 if not _is_retryable_stream_error(exc):
                     raise

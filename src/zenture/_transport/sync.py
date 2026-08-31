@@ -116,6 +116,7 @@ class SyncTransport:
         auth: bool = True,
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> Iterator[httpx.Response]:
         """Open one non-buffered public stream without mutation retries."""
 
@@ -123,12 +124,22 @@ class SyncTransport:
         if headers is not None:
             request_headers.update(headers)
         try:
-            with self._client.stream(
-                method,
-                build_url(self._config, path),
-                headers=request_headers,
-                params=params,
-            ) as response:
+            if timeout is None:
+                stream = self._client.stream(
+                    method,
+                    build_url(self._config, path),
+                    headers=request_headers,
+                    params=params,
+                )
+            else:
+                stream = self._client.stream(
+                    method,
+                    build_url(self._config, path),
+                    headers=request_headers,
+                    params=params,
+                    timeout=timeout,
+                )
+            with stream as response:
                 if response.status_code >= 400:
                     _raise_stream_error(response)
                 yield response
