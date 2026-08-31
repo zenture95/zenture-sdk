@@ -8,6 +8,8 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from zenture._contract import (
     ArtifactUploadRequest,
     ArtifactUploadResponse,
@@ -60,6 +62,8 @@ _RETRYABLE_STREAM_ERROR_CODES = frozenset(
 )
 _MAX_STREAM_CURSOR_CYCLES = 3
 _MAX_SEEN_EVENT_IDS = 1_024
+_SYNC_STREAM_STOP_POLL_INTERVAL = 0.25
+_MIN_STREAM_CHECKPOINT_BACKOFF = 0.01
 
 
 def _is_terminal_status(status: RunStatus) -> bool:
@@ -112,8 +116,20 @@ class _RunEventStreamState:
         if len(self.seen_event_ids) > _MAX_SEEN_EVENT_IDS:
             self.seen_event_ids.popitem(last=False)
 
-    def finish_stream(self, *, progressed: bool) -> None:
+    def finish_stream(self, *, progressed: bool, checkpoint: bool = False) -> None:
         """Update reconnect backoff and fail closed on a cursor cycle."""
+
+        if checkpoint:
+            self.no_progress_cycles = 0
+            self.reconnect_interval = min(
+                max(
+                    self.reconnect_interval * 2.0,
+                    self.initial_interval,
+                    _MIN_STREAM_CHECKPOINT_BACKOFF,
+                ),
+                max(self.max_interval, _MIN_STREAM_CHECKPOINT_BACKOFF),
+            )
+            return
 
         if progressed:
             self.no_progress_cycles = 0
@@ -171,6 +187,25 @@ def _remaining_stream_timeout(*, run_id: str, deadline: float | None) -> float |
     if remaining <= 0:
         raise ZenturePollingTimeoutError(operation_id=run_id)
     return remaining
+
+
+def _sync_stream_timeout(
+    *, run_id: str, deadline: float | None, stop: Callable[[], bool] | None
+) -> float | None:
+    """Bound blocking sync reads while local stream control is requested."""
+
+    if deadline is None:
+        return _SYNC_STREAM_STOP_POLL_INTERVAL if callable(stop) else None
+    remaining = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
+    return min(remaining, _SYNC_STREAM_STOP_POLL_INTERVAL)
+
+
+def _is_stream_read_timeout(error: Exception) -> bool:
+    """Return whether transport wrapped an HTTPX sync read timeout."""
+
+    return isinstance(error, ZentureTransportError) and isinstance(
+        error.__cause__, httpx.ReadTimeout
+    )
 
 
 class RunsResource:
@@ -316,8 +351,9 @@ class RunsResource:
             if state.cursor is not None:
                 headers["Last-Event-ID"] = state.cursor
             progressed = False
+            checkpoint = False
             try:
-                stream_timeout = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
+                stream_timeout = _sync_stream_timeout(run_id=run_id, deadline=deadline, stop=stop)
                 with self._transport.stream(
                     "GET",
                     f"/runs/{path_segment(run_id)}/events/stream",
@@ -340,9 +376,12 @@ class RunsResource:
             except (ZentureAPIError, ZentureTransportError) as exc:
                 if not _is_retryable_stream_error(exc):
                     raise
+                checkpoint = _is_stream_read_timeout(exc) and (
+                    deadline is not None or callable(stop)
+                )
 
             _raise_if_stream_stopped(run_id=run_id, deadline=deadline, stop=stop)
-            state.finish_stream(progressed=progressed)
+            state.finish_stream(progressed=progressed, checkpoint=checkpoint)
             delay = state.reconnect_interval
             if deadline is not None:
                 delay = min(delay, max(0.0, deadline - time.monotonic()))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from types import SimpleNamespace
 
 import httpx
@@ -552,6 +553,19 @@ class _StopAwareSyncStream(httpx.SyncByteStream):
         self.closed = True
 
 
+class _IdleSyncStream(httpx.SyncByteStream):
+    def __init__(self, read_timeout: float) -> None:
+        self.read_timeout = read_timeout
+        self.closed = False
+
+    def __iter__(self):
+        time.sleep(self.read_timeout + 0.01)
+        raise httpx.ReadTimeout("idle stream read timed out")
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class _StopAwareAsyncStream(httpx.AsyncByteStream):
     def __init__(self) -> None:
         self.closed = False
@@ -755,6 +769,44 @@ def test_sync_iter_events_passes_remaining_timeout_to_stream() -> None:
 
     assert read_timeouts
     assert 0 < read_timeouts[0] <= 5.0
+    client.close()
+
+
+def test_sync_iter_events_bounds_idle_read_and_closes_stream() -> None:
+    streams: list[_IdleSyncStream] = []
+    read_timeouts: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        read_timeout = request.extensions["timeout"]["read"]
+        read_timeouts.append(read_timeout)
+        stream = _IdleSyncStream(read_timeout)
+        streams.append(stream)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=stream,
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    started = time.monotonic()
+    with pytest.raises(ZenturePollingTimeoutError):
+        list(
+            client.runs.iter_events(
+                RUN_ID,
+                timeout=0.03,
+                initial_interval=0.0,
+                max_interval=0.0,
+            )
+        )
+    elapsed = time.monotonic() - started
+
+    assert read_timeouts
+    assert read_timeouts[0] <= 0.03
+    assert elapsed < 0.2
+    assert streams[0].closed
     client.close()
 
 
