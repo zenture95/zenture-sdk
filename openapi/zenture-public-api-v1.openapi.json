@@ -6197,6 +6197,12 @@
         ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 10485760,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-one-shot-source": true,
         "x-zenture-scopes": [
           "evaluation:run"
@@ -6498,6 +6504,12 @@
         ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 16000,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:run"
         ]
@@ -6843,6 +6855,12 @@
         ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:read"
         ]
@@ -7181,6 +7199,12 @@
         ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 8000,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:run"
         ]
@@ -7491,6 +7515,12 @@
         ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 32000,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:run"
         ]
@@ -7793,6 +7823,12 @@
         ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:read"
         ]
@@ -8093,6 +8129,12 @@
         ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 4000,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:run"
         ]
@@ -8403,6 +8445,12 @@
         ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:read"
         ]
@@ -8701,6 +8749,12 @@
         ],
         "x-zenture-idempotency-required": false,
         "x-zenture-max-body-bytes": 1024,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:read"
         ]
@@ -9001,6 +9055,12 @@
         ],
         "x-zenture-idempotency-required": true,
         "x-zenture-max-body-bytes": 8000,
+        "x-zenture-mcp-origin": {
+          "auth_profile": "mcp.run_gateway_assertion.v1",
+          "enabled": true,
+          "sdk_surface": "not_exposed",
+          "security_contract": "server_origin_only"
+        },
         "x-zenture-scopes": [
           "evaluation:run"
         ]
