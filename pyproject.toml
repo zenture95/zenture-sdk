@@ -74,9 +74,12 @@ include = [
 packages = ["src/zenture"]
 
 [tool.pytest.ini_options]
-addopts = ["--strict-config", "--strict-markers"]
+addopts = ["--strict-config", "--strict-markers", "-m", "not real_e2e"]
 pythonpath = ["src"]
 testpaths = ["tests/unit", "tests/integration", "tests/e2e"]
+markers = [
+  "real_e2e: explicit real MCP/API acceptance against an approved remote target",
+]
 
 [tool.mypy]
 python_version = "3.11"
