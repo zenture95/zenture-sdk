@@ -1287,6 +1287,8 @@
         "additionalProperties": false,
         "properties": {
           "artifact_ref": {
+            "maxLength": 132,
+            "minLength": 7,
             "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
             "type": "string"
           },
@@ -1587,6 +1589,9 @@
           },
           "artifact_refs": {
             "items": {
+              "maxLength": 132,
+              "minLength": 7,
+              "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
               "type": "string"
             },
             "maxItems": 16,
@@ -1734,6 +1739,9 @@
           },
           "artifact_refs": {
             "items": {
+              "maxLength": 132,
+              "minLength": 7,
+              "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
               "type": "string"
             },
             "maxItems": 16,
@@ -1875,7 +1883,8 @@
           },
           "upload_id": {
             "maxLength": 128,
-            "minLength": 1,
+            "minLength": 8,
+            "pattern": "^upload_[A-Za-z0-9_-]{8,128}$",
             "type": "string"
           },
           "upload_url": {
@@ -2056,6 +2065,8 @@
         "additionalProperties": false,
         "properties": {
           "edited_artifact_ref": {
+            "maxLength": 132,
+            "minLength": 7,
             "nullable": true,
             "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
             "type": "string"
@@ -2121,8 +2132,11 @@
             "const": "text"
           },
           "value": {
-            "maxLength": 20000,
+            "maxLength": 50000,
             "minLength": 1,
+            "not": {
+              "pattern": "^(?:[Hh][Tt][Tt][Pp][Ss]?://|[Dd][Aa][Tt][Aa]:|[Ff][Ii][Ll][Ee]:)"
+            },
             "type": "string"
           }
         },
@@ -2139,6 +2153,8 @@
             "const": "zenture_ref"
           },
           "value": {
+            "maxLength": 132,
+            "minLength": 7,
             "pattern": "^art_[A-Za-z0-9_-]{3,128}$",
             "type": "string"
           }
@@ -7514,7 +7530,7 @@
           "execution_failed"
         ],
         "x-zenture-idempotency-required": true,
-        "x-zenture-max-body-bytes": 32000,
+        "x-zenture-max-body-bytes": 524288,
         "x-zenture-mcp-origin": {
           "auth_profile": "mcp.run_gateway_assertion.v1",
           "enabled": true,

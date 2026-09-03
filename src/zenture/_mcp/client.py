@@ -92,7 +92,7 @@ def _validate_safe_payload(value: object) -> dict[str, object]:
                 raise ZentureMCPProtocolError("forbidden_result_field")
             for child in node_mapping.values():
                 walk(child)
-        elif isinstance(node, (list, tuple)):
+        elif isinstance(node, list | tuple):
             for child in cast("Iterable[object]", node):
                 walk(child)
 
@@ -175,7 +175,7 @@ def _tool_names(result: object) -> tuple[str, ...]:
         if result_mapping is not None
         else getattr(result, "tools", None)
     )
-    if not isinstance(tools, Iterable) or isinstance(tools, (str, bytes, Mapping)):
+    if not isinstance(tools, Iterable) or isinstance(tools, str | bytes | Mapping):
         raise ZentureMCPProtocolError("invalid_tool_catalog")
     names: list[str] = []
     for tool in cast("Iterable[object]", tools):
@@ -206,16 +206,24 @@ def _run_request(*, task: str, artifact: dict[str, Any], profile: str) -> dict[s
     return cast("dict[str, object]", request.model_dump(mode="json"))
 
 
-def _read_result(payload: dict[str, object]) -> McpRunRead:
+def _require_run_id(actual: str, expected: str) -> None:
+    if actual != expected:
+        raise ZentureMCPProtocolError("run_id_mismatch")
+
+
+def _read_result(payload: dict[str, object], *, expected_run_id: str) -> McpRunRead:
     replay_payload = payload.get("event_replay")
     run_payload = {key: value for key, value in payload.items() if key != "event_replay"}
     run = _parse_model(PublicRunResponse, run_payload)
+    _require_run_id(run.run_id, expected_run_id)
     replay = None
     if replay_payload is not None:
         replay_mapping = _mapping(replay_payload)
         if replay_mapping is None:
             raise ZentureMCPProtocolError("invalid_event_replay")
         replay = _parse_model(ListRunEventsResponse, replay_mapping)
+        if any(event.run_id != expected_run_id for event in replay.events):
+            raise ZentureMCPProtocolError("run_id_mismatch")
     return McpRunRead(run=run, event_replay=replay)
 
 
@@ -343,7 +351,8 @@ class McpClient:
             replay_limit=replay_limit,
         )
         return _read_result(
-            self._call("get_run", request.model_dump(mode="json", exclude_none=True))
+            self._call("get_run", request.model_dump(mode="json", exclude_none=True)),
+            expected_run_id=request.run_id,
         )
 
     def replay_events(
@@ -360,10 +369,12 @@ class McpClient:
 
     def cancel_run(self, run_id: str) -> PublicRunResponse:
         request = McpGetRunRequest(run_id=run_id)
-        return _parse_model(
+        result = _parse_model(
             PublicRunResponse,
             self._call("cancel_run", {"run_id": request.run_id}),
         )
+        _require_run_id(result.run_id, request.run_id)
+        return result
 
     def record_run_outcome(
         self,
@@ -382,10 +393,12 @@ class McpClient:
             ),
             edited_artifact_ref=edited_artifact_ref,
         )
-        return _parse_model(
+        result = _parse_model(
             PublicRunResponse,
             self._call("record_run_outcome", request.model_dump(mode="json", exclude_none=True)),
         )
+        _require_run_id(result.run_id, request.run_id)
+        return result
 
 
 class AsyncMcpClient:
@@ -509,7 +522,8 @@ class AsyncMcpClient:
             replay_limit=replay_limit,
         )
         return _read_result(
-            await self._call("get_run", request.model_dump(mode="json", exclude_none=True))
+            await self._call("get_run", request.model_dump(mode="json", exclude_none=True)),
+            expected_run_id=request.run_id,
         )
 
     async def replay_events(
@@ -522,10 +536,12 @@ class AsyncMcpClient:
 
     async def cancel_run(self, run_id: str) -> PublicRunResponse:
         request = McpGetRunRequest(run_id=run_id)
-        return _parse_model(
+        result = _parse_model(
             PublicRunResponse,
             await self._call("cancel_run", {"run_id": request.run_id}),
         )
+        _require_run_id(result.run_id, request.run_id)
+        return result
 
     async def record_run_outcome(
         self,
@@ -544,13 +560,15 @@ class AsyncMcpClient:
             ),
             edited_artifact_ref=edited_artifact_ref,
         )
-        return _parse_model(
+        result = _parse_model(
             PublicRunResponse,
             await self._call(
                 "record_run_outcome",
                 request.model_dump(mode="json", exclude_none=True),
             ),
         )
+        _require_run_id(result.run_id, request.run_id)
+        return result
 
 
 __all__ = ["AsyncMcpClient", "McpClient"]

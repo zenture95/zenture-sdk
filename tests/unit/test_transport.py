@@ -20,6 +20,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 LIVE_TRANSPORT_KEY = "zt_" + "live_" + "transport_123"
+MAX_RESPONSE_BYTES = 512 * 1024
+
+
+def _json_body_with_exact_size(size: int) -> bytes:
+    prefix = b'{"value":"'
+    suffix = b'"}'
+    return prefix + (b"x" * (size - len(prefix) - len(suffix))) + suffix
+
+
+def _error_body_with_exact_size(size: int) -> bytes:
+    prefix = b'{"error":{"code":"validation_failed","message":"'
+    suffix = b'"}}'
+    return prefix + (b"x" * (size - len(prefix) - len(suffix))) + suffix
 
 
 def test_sync_transport_public_surface_does_not_expose_authorization_header() -> None:
@@ -66,6 +79,32 @@ def test_sync_transport_request_text_can_skip_authorization() -> None:
 
     assert transport.request_text("GET", "/helloworld", auth=False) == "hello"
     assert "authorization" not in seen_headers
+
+
+def test_sync_transport_accepts_text_at_response_byte_ceiling() -> None:
+    body = b"x" * MAX_RESPONSE_BYTES
+    transport = SyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=body))
+        ),
+    )
+
+    assert transport.request_text("GET", "/helloworld", auth=False) == body.decode()
+
+
+def test_sync_transport_rejects_text_above_response_byte_ceiling() -> None:
+    transport = SyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))
+            )
+        ),
+    )
+
+    with pytest.raises(ZentureResponseError, match="too large"):
+        transport.request_text("GET", "/helloworld", auth=False)
 
 
 def test_sync_transport_request_json_sends_headers_and_auth() -> None:
@@ -264,6 +303,59 @@ def test_sync_transport_request_json_rejects_invalid_success_json() -> None:
     assert exc_info.value.__context__ is None
 
 
+def test_sync_transport_accepts_json_at_response_byte_ceiling() -> None:
+    body = _json_body_with_exact_size(MAX_RESPONSE_BYTES)
+    transport = SyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=body))
+        ),
+    )
+
+    assert transport.request_json("GET", "/usage") == {
+        "value": "x" * (MAX_RESPONSE_BYTES - len(b'{"value":""}'))
+    }
+
+
+def test_sync_transport_rejects_oversized_success_before_json_decoding() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{" + b"x" * MAX_RESPONSE_BYTES)
+
+    transport = SyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(ZentureResponseError, match="too large"):
+        transport.request_json("GET", "/operations/op_123")
+
+
+def test_sync_transport_rejects_oversized_error_before_json_decoding() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, content=b"{" + b"x" * MAX_RESPONSE_BYTES)
+
+    transport = SyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(ZentureResponseError, match="too large"):
+        transport.request_json("GET", "/operations/op_123")
+
+
+def test_sync_transport_accepts_error_json_at_response_byte_ceiling() -> None:
+    body = _error_body_with_exact_size(MAX_RESPONSE_BYTES)
+    transport = SyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(400, content=body))
+        ),
+    )
+
+    with pytest.raises(ZentureValidationError):
+        transport.request_json("GET", "/operations/op_123")
+
+
 def test_sync_transport_maps_error_response() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -389,6 +481,77 @@ async def test_async_transport_request_text_can_skip_authorization() -> None:
 
     assert await transport.request_text("GET", "/helloworld", auth=False) == "hello"
     assert "authorization" not in seen_headers
+
+
+@pytest.mark.asyncio
+async def test_async_transport_accepts_text_at_response_byte_ceiling() -> None:
+    body = b"x" * MAX_RESPONSE_BYTES
+    transport = AsyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=body))
+        ),
+    )
+
+    assert await transport.request_text("GET", "/helloworld", auth=False) == body.decode()
+
+
+@pytest.mark.asyncio
+async def test_async_transport_rejects_text_above_response_byte_ceiling() -> None:
+    transport = AsyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))
+            )
+        ),
+    )
+
+    with pytest.raises(ZentureResponseError, match="too large"):
+        await transport.request_text("GET", "/helloworld", auth=False)
+
+
+@pytest.mark.asyncio
+async def test_async_transport_rejects_oversized_success_before_json_decoding() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{" + b"x" * MAX_RESPONSE_BYTES)
+
+    transport = AsyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(ZentureResponseError, match="too large"):
+        await transport.request_json("GET", "/operations/op_123")
+
+
+@pytest.mark.asyncio
+async def test_async_transport_rejects_oversized_error_before_json_decoding() -> None:
+    transport = AsyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(503, content=b"{" + b"x" * MAX_RESPONSE_BYTES)
+            )
+        ),
+    )
+
+    with pytest.raises(ZentureResponseError, match="too large"):
+        await transport.request_json("GET", "/operations/op_123")
+
+
+@pytest.mark.asyncio
+async def test_async_transport_accepts_error_json_at_response_byte_ceiling() -> None:
+    body = _error_body_with_exact_size(MAX_RESPONSE_BYTES)
+    transport = AsyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(400, content=body))
+        ),
+    )
+
+    with pytest.raises(ZentureValidationError):
+        await transport.request_json("GET", "/operations/op_123")
 
 
 @pytest.mark.asyncio
@@ -566,6 +729,21 @@ async def test_async_transport_request_json_rejects_invalid_success_json() -> No
     assert token not in str(exc_info.value)
     assert exc_info.value.__cause__ is None
     assert exc_info.value.__context__ is None
+
+
+@pytest.mark.asyncio
+async def test_async_transport_accepts_json_at_response_byte_ceiling() -> None:
+    body = _json_body_with_exact_size(MAX_RESPONSE_BYTES)
+    transport = AsyncTransport(
+        config=ZentureConfig(api_key=LIVE_TRANSPORT_KEY),
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=body))
+        ),
+    )
+
+    assert await transport.request_json("GET", "/usage") == {
+        "value": "x" * (MAX_RESPONSE_BYTES - len(b'{"value":""}'))
+    }
 
 
 @pytest.mark.asyncio

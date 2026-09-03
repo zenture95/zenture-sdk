@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self, cast
@@ -9,7 +10,15 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, ConfigDict, Field, field_validator, model_validator
 
+from zenture._contract.run_references import (
+    RUN_CURSOR_PATTERN,
+    validate_run_cursor,
+    validate_terminal_refs,
+)
 from zenture.models import SDKBaseModel
+
+_ARTIFACT_REF_RE = re.compile(r"^art_[A-Za-z0-9_-]{3,128}$")
+_UPLOAD_ID_RE = re.compile(r"^upload_[A-Za-z0-9_-]{8,128}$")
 
 
 class OperationStatus(StrEnum):
@@ -391,12 +400,19 @@ class PublicDecision(StrEnum):
 
 class RunTextArtifact(SDKBaseModel):
     type: Literal["text"]
-    value: str = Field(min_length=1, max_length=10 * 1024 * 1024)
+    value: str = Field(min_length=1, max_length=50_000)
+
+    @field_validator("value")
+    @classmethod
+    def _text(cls, value: str) -> str:
+        if value.casefold().startswith(("http://", "https://", "data:", "file:")):
+            raise ValueError("text artifact must contain selected text, not a URL or encoded blob")
+        return value
 
 
 class RunReferenceArtifact(SDKBaseModel):
     type: Literal["zenture_ref"]
-    value: str = Field(pattern=r"^art_[A-Za-z0-9_.:-]{3,128}$")
+    value: str = Field(min_length=7, max_length=132, pattern=r"^art_[A-Za-z0-9_-]{3,128}$")
 
 
 RunArtifact = Annotated[RunTextArtifact | RunReferenceArtifact, Field(discriminator="type")]
@@ -407,12 +423,21 @@ class ArtifactUploadRequest(SDKBaseModel):
     mime_type: str = Field(min_length=1, max_length=127)
     byte_size: int = Field(ge=1, le=10 * 1024 * 1024)
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    upload_id: str | None = Field(default=None, min_length=1, max_length=128)
+    upload_id: str | None = Field(
+        default=None, min_length=8, max_length=128, pattern=r"^upload_[A-Za-z0-9_-]{8,128}$"
+    )
 
 
 class ArtifactUploadResponse(SDKBaseModel):
-    upload_id: str | None = Field(default=None, min_length=1, max_length=128)
-    artifact_ref: str | None = Field(default=None, pattern=r"^art_[A-Za-z0-9_.:-]{3,128}$")
+    upload_id: str | None = Field(
+        default=None, min_length=8, max_length=128, pattern=r"^upload_[A-Za-z0-9_-]{8,128}$"
+    )
+    artifact_ref: str | None = Field(
+        default=None,
+        min_length=7,
+        max_length=132,
+        pattern=r"^art_[A-Za-z0-9_-]{3,128}$",
+    )
     content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     byte_size: int = Field(ge=1, le=10 * 1024 * 1024)
     content_type: str = Field(min_length=1, max_length=127)
@@ -425,7 +450,7 @@ class ArtifactUploadResponse(SDKBaseModel):
 
 
 class SignedUploadResponse(SDKBaseModel):
-    upload_id: str = Field(min_length=1, max_length=128)
+    upload_id: str = Field(min_length=8, max_length=128, pattern=r"^upload_[A-Za-z0-9_-]{8,128}$")
     expires_at: AwareDatetime
     upload_url: str | None = Field(default=None, max_length=2048)
 
@@ -436,7 +461,7 @@ class SignedUploadResponse(SDKBaseModel):
 
 
 class PrepareKnowledgeRunRequest(SDKBaseModel):
-    task: str = Field(min_length=1, max_length=64 * 1024)
+    task: str = Field(min_length=1, max_length=20_000)
     artifact: RunArtifact
     profile: RunProfile = RunProfile.STANDARD
 
@@ -465,9 +490,28 @@ class CreateRunRequest(SDKBaseModel):
         return UUID(str(value))
 
 
+class FindingAdjudication(SDKBaseModel):
+    finding_ref: str = Field(min_length=1, max_length=128)
+    outcome: Literal["confirmed", "rejected", "partially_valid", "not_sure"]
+
+
 class RecordRunOutcomeRequest(SDKBaseModel):
     outcome: Literal["used", "edited", "rejected", "escalated", "not_sure"]
-    outcome_ref: str | None = Field(default=None, max_length=256, pattern=r"^[A-Za-z0-9_:/.-]{1,256}$")
+    finding_adjudications: list[FindingAdjudication] = Field(
+        default_factory=lambda: list[FindingAdjudication](), max_length=20
+    )
+    edited_artifact_ref: str | None = Field(
+        default=None,
+        min_length=7,
+        max_length=132,
+        pattern=r"^art_[A-Za-z0-9_-]{3,128}$",
+    )
+
+    @model_validator(mode="after")
+    def _edited_artifact_matches_outcome(self) -> Self:
+        if (self.outcome == "edited") != (self.edited_artifact_ref is not None):
+            raise ValueError("edited outcome requires an edited_artifact_ref")
+        return self
 
 
 class PublicTaskContractSummary(SDKBaseModel):
@@ -534,7 +578,7 @@ class PublicQueueProjection(SDKBaseModel):
 
 
 class PublicRunResponse(SDKBaseModel):
-    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_-]{3,128}$")
     generation: int = Field(ge=1)
     family: Literal["knowledge"] = "knowledge"
     work_type: str = Field(min_length=1, max_length=64)
@@ -556,11 +600,18 @@ class PublicRunResponse(SDKBaseModel):
     billing_summary: dict[str, str] = Field(default_factory=dict, max_length=8)
     limitations: tuple[str, ...] = Field(default_factory=tuple, max_length=32)
     cancellation_requested: bool = False
-    event_cursor: str | None = None
-
-    @field_validator(
-        "created_at", "updated_at", "started_at", "completed_at", mode="before"
+    event_cursor: str | None = Field(
+        default=None, max_length=512, pattern=r"^[A-Za-z0-9._~-]{1,512}$"
     )
+
+    @field_validator("event_cursor", mode="before")
+    @classmethod
+    def _event_cursor(cls, value: object) -> object:
+        if value is None:
+            return None
+        return validate_run_cursor(value, field="event_cursor")
+
+    @field_validator("created_at", "updated_at", "started_at", "completed_at", mode="before")
     @classmethod
     def _timestamps(cls, value: object) -> object:
         return _coerce_aware_datetime(value)
@@ -575,14 +626,25 @@ class PublicRunResponse(SDKBaseModel):
     def _status(cls, value: object) -> object:
         return RunStatus(value) if isinstance(value, str) else value
 
-    @field_validator("artifact_refs", "limitations", mode="before")
+    @field_validator("artifact_refs", mode="before")
     @classmethod
-    def _tuples(cls, value: object) -> object:
+    def _artifact_refs(cls, value: object) -> object:
+        values = _coerce_tuple(value)
+        if not isinstance(values, tuple):
+            return values
+        refs = cast("tuple[object, ...]", values)
+        if any(not isinstance(ref, str) or _ARTIFACT_REF_RE.fullmatch(ref) is None for ref in refs):
+            raise ValueError("artifact reference is invalid")
+        return refs
+
+    @field_validator("limitations", mode="before")
+    @classmethod
+    def _limitations(cls, value: object) -> object:
         return _coerce_tuple(value)
 
 
 class PublicRunListItem(SDKBaseModel):
-    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_-]{3,128}$")
     status: RunStatus
     decision: PublicDecision | None = None
     task_summary_ref: str | None = None
@@ -614,7 +676,16 @@ class PublicRunListItem(SDKBaseModel):
 class ListRunsResponse(SDKBaseModel):
     runs: tuple[PublicRunListItem, ...]
     has_more: bool
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(
+        default=None, max_length=512, pattern=r"^[A-Za-z0-9._~-]{1,512}$"
+    )
+
+    @field_validator("next_cursor", mode="before")
+    @classmethod
+    def _next_cursor(cls, value: object) -> object:
+        if value is None:
+            return None
+        return validate_run_cursor(value, field="next_cursor")
 
     @field_validator("runs", mode="before")
     @classmethod
@@ -625,35 +696,42 @@ class ListRunsResponse(SDKBaseModel):
 class PublicRunEvent(SDKBaseModel):
     type: Literal["run.event"]
     event_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
-    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_-]{3,128}$")
     sequence: int = Field(ge=0)
     phase: Literal["queued", "preparing", "running", "completed", "degraded", "failed", "cancelled"]
-    status: Literal["queued", "preparing", "running", "completed", "degraded", "failed", "cancelled"]
+    status: Literal[
+        "queued", "preparing", "running", "completed", "degraded", "failed", "cancelled"
+    ]
     message_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9_.-]{0,127}$")
     progress_percent: int | None = Field(default=None, ge=0, le=100)
     jobs_ahead: int | None = Field(default=None, ge=0, le=50)
     estimated_start_seconds: dict[str, int] | None = None
     estimated_completion_seconds: dict[str, int] | None = None
     terminal_refs: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
-    event_cursor: str = Field(min_length=1, max_length=512, pattern=r"^[A-Za-z0-9._~-]+$")
+    event_cursor: str = Field(min_length=1, max_length=512, pattern=RUN_CURSOR_PATTERN.pattern)
+
+    @field_validator("event_cursor", mode="before")
+    @classmethod
+    def _event_cursor(cls, value: object) -> object:
+        return validate_run_cursor(value, field="event_cursor")
 
     @field_validator("terminal_refs", mode="before")
     @classmethod
     def _terminal_refs(cls, value: object) -> object:
-        return _coerce_tuple(value)
+        return validate_terminal_refs(value)
 
 
 class PublicRunHeartbeat(SDKBaseModel):
     type: Literal["run.heartbeat"]
     event_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
-    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_-]{3,128}$")
     sequence: int = Field(ge=0)
 
 
 class PublicRunStreamError(SDKBaseModel):
     type: Literal["run.error"]
     event_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
-    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_.:-]{8,128}$")
+    run_id: str = Field(pattern=r"^run_[A-Za-z0-9_-]{3,128}$")
     sequence: int = Field(ge=0)
     code: str = Field(min_length=1, max_length=128, pattern=r"^[a-z0-9_.:-]+$")
     message: str = Field(min_length=1, max_length=512)
@@ -667,7 +745,16 @@ PublicRunStreamMessage = PublicRunEvent | PublicRunHeartbeat | PublicRunStreamEr
 class ListRunEventsResponse(SDKBaseModel):
     events: tuple[PublicRunEvent, ...]
     has_more: bool
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(
+        default=None, max_length=512, pattern=r"^[A-Za-z0-9._~-]{1,512}$"
+    )
+
+    @field_validator("next_cursor", mode="before")
+    @classmethod
+    def _next_cursor(cls, value: object) -> object:
+        if value is None:
+            return None
+        return validate_run_cursor(value, field="next_cursor")
 
     @field_validator("events", mode="before")
     @classmethod

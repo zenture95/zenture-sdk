@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from collections import OrderedDict
 from collections.abc import Iterable
@@ -29,6 +30,7 @@ from zenture._contract import (
     RunStatus,
     SignedUploadResponse,
 )
+from zenture._contract.run_references import validate_run_cursor
 from zenture._resources._utils import (
     idempotency_headers,
     parse_response,
@@ -38,6 +40,7 @@ from zenture.errors import (
     ZentureAPIError,
     ZenturePollingStoppedError,
     ZenturePollingTimeoutError,
+    ZentureResponseError,
     ZentureTransportError,
 )
 
@@ -69,28 +72,47 @@ _SYNC_STREAM_STOP_POLL_INTERVAL = 0.25
 _SYNC_STREAM_HEARTBEAT_INTERVAL = 15.0
 _MIN_STREAM_CHECKPOINT_BACKOFF = 0.01
 _MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
-_ARTIFACT_CHUNK_SIZE = 64 * 1024
+MAX_STREAM_EVENT_BYTES = 512 * 1024
+ARTIFACT_CHUNK_SIZE = 64 * 1024
+_RUN_ID_RE = re.compile(r"^run_[A-Za-z0-9_-]{3,128}$")
 
 
-def _is_terminal_status(status: RunStatus) -> bool:
+def is_terminal_status(status: RunStatus) -> bool:
     """Return whether a public Run status is terminal."""
 
     return status in _TERMINAL_STATUSES
 
 
+def validate_run_id(run_id: str) -> str:
+    if type(run_id) is not str or _RUN_ID_RE.fullmatch(run_id) is None:
+        raise ValueError("run_id must be a canonical public Run reference")
+    return run_id
+
+
+def parse_run_response(payload: object, *, expected_run_id: str) -> PublicRunResponse:
+    """Validate a Run projection and bind it to the requested path identity."""
+
+    response = parse_response(PublicRunResponse, payload)
+    if response.run_id != expected_run_id:
+        raise ZentureResponseError("Public API response run_id did not match the requested Run.")
+    return response
+
+
 @dataclass
-class _RunEventStreamState:
+class RunEventStreamState:
     """Shared sync/async state for one reconnecting Run event stream."""
 
     cursor: str | None
     initial_interval: float
     max_interval: float
-    seen_event_ids: OrderedDict[str, None] = field(default_factory=OrderedDict)
+    seen_event_ids: OrderedDict[str, None] = field(default_factory=lambda: OrderedDict[str, None]())
     last_event_sequence: int | None = None
     no_progress_cycles: int = 0
     reconnect_interval: float = field(init=False)
 
     def __post_init__(self) -> None:
+        if self.cursor is not None:
+            self.cursor = validate_run_cursor(self.cursor)
         self.reconnect_interval = max(0.0, self.initial_interval)
 
     def accept(self, message: PublicRunStreamMessage) -> tuple[bool, bool]:
@@ -108,13 +130,10 @@ class _RunEventStreamState:
             self.cursor = message.event_cursor
             return True, self.cursor != previous_cursor
 
-        if isinstance(message, (PublicRunHeartbeat, PublicRunStreamError)):
-            if message.event_id in self.seen_event_ids:
-                return False, False
-            self._remember_event_id(message.event_id)
-            return True, False
-
-        return False, False
+        if message.event_id in self.seen_event_ids:
+            return False, False
+        self._remember_event_id(message.event_id)
+        return True, False
 
     def _remember_event_id(self, event_id: str) -> None:
         self.seen_event_ids[event_id] = None
@@ -153,7 +172,7 @@ class _RunEventStreamState:
         )
 
 
-def _is_terminal_stream_message(message: PublicRunStreamMessage) -> bool:
+def is_terminal_stream_message(message: PublicRunStreamMessage) -> bool:
     """Return whether a stream message proves the Run stream is terminal."""
 
     if isinstance(message, PublicRunEvent):
@@ -161,7 +180,7 @@ def _is_terminal_stream_message(message: PublicRunStreamMessage) -> bool:
     return isinstance(message, PublicRunStreamError) and message.terminal
 
 
-def _is_retryable_stream_error(error: Exception) -> bool:
+def is_retryable_stream_error(error: Exception) -> bool:
     """Return whether a stream-open/read error may be retried safely."""
 
     if isinstance(error, ZentureTransportError):
@@ -186,7 +205,7 @@ def _raise_if_stream_stopped(
         raise ZenturePollingTimeoutError(operation_id=run_id)
 
 
-def _remaining_stream_timeout(*, run_id: str, deadline: float | None) -> float | None:
+def remaining_stream_timeout(*, run_id: str, deadline: float | None) -> float | None:
     if deadline is None:
         return None
     remaining = deadline - time.monotonic()
@@ -202,7 +221,7 @@ def _sync_stream_timeout(
 
     if deadline is None:
         return _SYNC_STREAM_STOP_POLL_INTERVAL if callable(stop) else None
-    remaining = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
+    remaining = remaining_stream_timeout(run_id=run_id, deadline=deadline)
     assert remaining is not None
     if not callable(stop):
         return min(remaining, _SYNC_STREAM_HEARTBEAT_INTERVAL)
@@ -225,7 +244,7 @@ def _is_stream_read_timeout(error: Exception) -> bool:
     )
 
 
-def _required_artifact_size(byte_size: int | None) -> int:
+def required_artifact_size(byte_size: int | None) -> int:
     if type(byte_size) is not int:
         raise ValueError("byte_size is required for streaming content")
     if byte_size < 1 or byte_size > _MAX_ARTIFACT_BYTES:
@@ -240,7 +259,7 @@ def _validated_sync_artifact_chunks(
     total = 0
     read = getattr(source, "read", None)
     if callable(read):
-        chunks = iter(lambda: read(_ARTIFACT_CHUNK_SIZE), b"")
+        chunks = iter(lambda: read(ARTIFACT_CHUNK_SIZE), b"")
     else:
         try:
             chunks = iter(cast("Iterable[object]", source))
@@ -270,7 +289,7 @@ def _prepare_sync_artifact_content(
     mime_type: str,
     upload_id: str,
     content_hash: str,
-) -> tuple[object, int, bool]:
+) -> tuple[bytes | Iterable[bytes], int, bool]:
     if isinstance(content, bytes):
         if not content:
             raise ValueError("content must be non-empty bytes")
@@ -288,9 +307,9 @@ def _prepare_sync_artifact_content(
             raise ValueError("content_hash does not match content")
         return content, upload_size, True
 
-    if isinstance(content, (bytearray, memoryview, str)):
+    if isinstance(content, bytearray | memoryview | str):
         raise ValueError("content must be bytes, an iterable, or a binary file")
-    upload_size = _required_artifact_size(byte_size)
+    upload_size = required_artifact_size(byte_size)
     ArtifactUploadRequest(
         upload_id=upload_id,
         file_name=file_name,
@@ -302,7 +321,9 @@ def _prepare_sync_artifact_content(
         raise ValueError("content must be bytes, an iterable, or a binary file")
     return (
         _validated_sync_artifact_chunks(
-            content, expected_size=upload_size, expected_hash=content_hash
+            cast("Iterable[bytes] | BinaryIO", content),
+            expected_size=upload_size,
+            expected_hash=content_hash,
         ),
         upload_size,
         False,
@@ -323,11 +344,13 @@ class RunsResource:
         idempotency_key: str,
         profile: str = "standard",
     ) -> PrepareKnowledgeRunResponse:
-        body = PrepareKnowledgeRunRequest(task=task, artifact=artifact, profile=profile)
+        body = PrepareKnowledgeRunRequest.model_validate(
+            {"task": task, "artifact": artifact, "profile": profile}
+        )
         payload = self._transport.request_json(
             "POST",
             "/runs/prepare",
-            headers=idempotency_headers(_phase_key(idempotency_key, "prepare")),
+            headers=idempotency_headers(phase_key(idempotency_key, "prepare")),
             json=body.model_dump(mode="json", exclude_defaults=True),
         )
         return parse_response(PrepareKnowledgeRunResponse, payload)
@@ -340,9 +363,11 @@ class RunsResource:
         idempotency_key: str,
         wait: int | None = None,
     ) -> PublicRunResponse:
-        body = CreateRunRequest(proposal_id=proposal_id, proposal_hash=proposal_hash)
-        headers = idempotency_headers(_phase_key(idempotency_key, "create"))
-        _add_wait_header(headers, wait)
+        body = CreateRunRequest.model_validate(
+            {"proposal_id": proposal_id, "proposal_hash": proposal_hash}
+        )
+        headers = idempotency_headers(phase_key(idempotency_key, "create"))
+        add_wait_header(headers, wait)
         payload = self._transport.request_json(
             "POST",
             "/runs",
@@ -386,7 +411,7 @@ class RunsResource:
         limit: int = 5,
         cursor: str | None = None,
     ) -> ListRunsResponse:
-        params = _run_list_params(
+        params = run_list_params(
             status=status,
             decision=decision,
             profile=profile,
@@ -401,6 +426,7 @@ class RunsResource:
         )
 
     def get(self, run_id: str, *, view: str = "summary") -> PublicRunResponse:
+        validate_run_id(run_id)
         if view not in {"summary", "full"}:
             raise ValueError("view must be summary or full")
         payload = self._transport.request_json(
@@ -408,24 +434,24 @@ class RunsResource:
             f"/runs/{path_segment(run_id)}",
             params={"view": view},
         )
-        return parse_response(PublicRunResponse, payload)
+        return parse_run_response(payload, expected_run_id=run_id)
 
     def list_events(
         self, run_id: str, *, cursor: str | None = None, limit: int = 50
     ) -> ListRunEventsResponse:
+        validate_run_id(run_id)
         if type(limit) is not int or limit < 1 or limit > 50:
             raise ValueError("limit must be between 1 and 50")
         params = {"limit": str(limit)}
         if cursor is not None:
-            if not cursor or len(cursor) > 512:
-                raise ValueError("cursor must be between 1 and 512 characters")
-            params["cursor"] = cursor
-        return parse_response(
+            params["cursor"] = validate_run_cursor(cursor)
+        response = parse_response(
             ListRunEventsResponse,
             self._transport.request_json(
                 "GET", f"/runs/{path_segment(run_id)}/events", params=params
             ),
         )
+        return validate_run_event_replay(response, expected_run_id=run_id)
 
     def iter_events(
         self,
@@ -437,10 +463,11 @@ class RunsResource:
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
     ) -> Iterator[PublicRunStreamMessage]:
+        validate_run_id(run_id)
         if timeout is not None and timeout <= 0:
             raise ValueError("timeout must be positive")
         deadline = time.monotonic() + timeout if timeout is not None else None
-        state = _RunEventStreamState(
+        state = RunEventStreamState(
             cursor=last_event_id,
             initial_interval=initial_interval,
             max_interval=max_interval,
@@ -462,13 +489,13 @@ class RunsResource:
                     headers=headers,
                     timeout=stream_timeout,
                 ) as response:
-                    for message in _parse_sse_events(response.iter_lines()):
+                    for message in _parse_sse_events(response.iter_lines(), expected_run_id=run_id):
                         emit, message_progressed = state.accept(message)
                         progressed = progressed or message_progressed
                         if not emit:
                             continue
                         yield message
-                        if _is_terminal_stream_message(message):
+                        if is_terminal_stream_message(message):
                             return
                         _raise_if_stream_stopped(run_id=run_id, deadline=deadline, stop=stop)
                         if (
@@ -485,7 +512,7 @@ class RunsResource:
                                 break
                             return
             except (ZentureAPIError, ZentureTransportError) as exc:
-                if not _is_retryable_stream_error(exc):
+                if not is_retryable_stream_error(exc):
                     raise
                 checkpoint = _is_stream_read_timeout(exc) and (
                     deadline is not None or callable(stop)
@@ -508,6 +535,7 @@ class RunsResource:
         max_interval: float = 8.0,
         stop: Any = None,
     ) -> PublicRunResponse:
+        validate_run_id(run_id)
         if timeout <= 0:
             raise ValueError("timeout must be positive")
         deadline = time.monotonic() + timeout
@@ -518,19 +546,20 @@ class RunsResource:
             if time.monotonic() >= deadline:
                 raise ZenturePollingTimeoutError(operation_id=run_id)
             result = self.get(run_id)
-            if _is_terminal_status(result.status):
+            if is_terminal_status(result.status):
                 return result
             time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
             interval = min(interval * 2, max_interval)
 
     def cancel(self, run_id: str, *, idempotency_key: str) -> PublicRunResponse:
+        validate_run_id(run_id)
         payload = self._transport.request_json(
             "POST",
             f"/runs/{path_segment(run_id)}/cancel",
             headers=idempotency_headers(idempotency_key),
             json={},
         )
-        return parse_response(PublicRunResponse, payload)
+        return parse_run_response(payload, expected_run_id=run_id)
 
     def record_outcome(
         self,
@@ -538,16 +567,24 @@ class RunsResource:
         *,
         outcome: str,
         idempotency_key: str,
-        outcome_ref: str | None = None,
+        finding_adjudications: Sequence[dict[str, Any]] | None = None,
+        edited_artifact_ref: str | None = None,
     ) -> PublicRunResponse:
-        body = RecordRunOutcomeRequest(outcome=outcome, outcome_ref=outcome_ref)
+        validate_run_id(run_id)
+        body = RecordRunOutcomeRequest.model_validate(
+            {
+                "outcome": outcome,
+                "finding_adjudications": list(finding_adjudications or ()),
+                "edited_artifact_ref": edited_artifact_ref,
+            }
+        )
         payload = self._transport.request_json(
             "POST",
             f"/runs/{path_segment(run_id)}/outcome",
             headers=idempotency_headers(idempotency_key),
             json=body.model_dump(mode="json", exclude_none=True),
         )
-        return parse_response(PublicRunResponse, payload)
+        return parse_run_response(payload, expected_run_id=run_id)
 
     def signed_upload(
         self,
@@ -609,8 +646,8 @@ class RunsResource:
         return parse_response(ArtifactUploadResponse, payload)
 
 
-def _phase_key(value: str, suffix: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+def phase_key(value: str, suffix: str) -> str:
+    if not value.strip():
         raise ValueError("idempotency_key must not be blank")
     result = f"{value.strip()}:{suffix}"
     if len(result) > 255:
@@ -618,7 +655,7 @@ def _phase_key(value: str, suffix: str) -> str:
     return result
 
 
-def _add_wait_header(headers: dict[str, str], value: int | None) -> None:
+def add_wait_header(headers: dict[str, str], value: int | None) -> None:
     if value is None:
         return
     if type(value) is not int:
@@ -626,7 +663,7 @@ def _add_wait_header(headers: dict[str, str], value: int | None) -> None:
     headers["Prefer"] = f"wait={min(max(value, 0), 15)}"
 
 
-def _run_list_params(
+def run_list_params(
     *,
     status: Sequence[str] | None,
     decision: Sequence[str] | None,
@@ -641,7 +678,7 @@ def _run_list_params(
     params = {"limit": str(limit)}
     for name, values in (("status", status), ("decision", decision), ("profile", profile)):
         if values:
-            if any(not isinstance(value, str) or not value for value in values):
+            if any(not value for value in values):
                 raise ValueError(f"{name} contains an invalid value")
             params[name] = ",".join(values)
     if created_after is not None:
@@ -649,9 +686,7 @@ def _run_list_params(
     if created_before is not None:
         params["created_before"] = _timestamp(created_before)
     if cursor is not None:
-        if not cursor or len(cursor) > 512:
-            raise ValueError("cursor must be between 1 and 512 characters")
-        params["cursor"] = cursor
+        params["cursor"] = validate_run_cursor(cursor)
     return params
 
 
@@ -661,20 +696,37 @@ def _timestamp(value: datetime) -> str:
     return value.isoformat()
 
 
-def _parse_sse_events(lines: Iterator[str]) -> Iterator[PublicRunStreamMessage]:
+def validate_run_event_replay(
+    response: ListRunEventsResponse, *, expected_run_id: str
+) -> ListRunEventsResponse:
+    """Bind every replay event to the Run selected by the request path."""
+
+    if any(event.run_id != expected_run_id for event in response.events):
+        raise ValueError("public Run event run_id did not match the requested Run")
+    return response
+
+
+def _parse_sse_events(
+    lines: Iterator[str], *, expected_run_id: str
+) -> Iterator[PublicRunStreamMessage]:
     data: list[str] = []
     event_type = ""
+    event_bytes = 0
     for raw_line in lines:
         line = str(raw_line)
+        event_bytes += len(line.encode("utf-8")) + 1
+        if event_bytes > MAX_STREAM_EVENT_BYTES:
+            raise ValueError("public Run event stream record is too large")
         if not line:
             if data:
                 try:
                     payload = json.loads("\n".join(data))
-                    yield _parse_stream_message(payload, event_type)
                 except (TypeError, ValueError):
                     raise ValueError("public Run event stream contained invalid JSON") from None
+                yield _parse_stream_message(payload, event_type, expected_run_id=expected_run_id)
                 data.clear()
                 event_type = ""
+            event_bytes = 0
             continue
         if line.startswith(":") or line.startswith("id:"):
             continue
@@ -685,17 +737,24 @@ def _parse_sse_events(lines: Iterator[str]) -> Iterator[PublicRunStreamMessage]:
             data.append(line[5:].lstrip())
 
 
-def _parse_stream_message(payload: object, event_type: str) -> PublicRunStreamMessage:
+def _parse_stream_message(
+    payload: object, event_type: str, *, expected_run_id: str
+) -> PublicRunStreamMessage:
     if not isinstance(payload, dict):
         raise ValueError("public Run event payload must be an object")
-    message_type = payload.get("type") or event_type
+    mapping = cast("dict[str, object]", payload)
+    message_type = mapping.get("type") or event_type
     if message_type == "run.event":
-        return PublicRunEvent.model_validate(payload)
-    if message_type == "run.heartbeat":
-        return PublicRunHeartbeat.model_validate(payload)
-    if message_type == "run.error":
-        return PublicRunStreamError.model_validate(payload)
-    raise ValueError("public Run event type is unsupported")
+        message: PublicRunStreamMessage = PublicRunEvent.model_validate(mapping)
+    elif message_type == "run.heartbeat":
+        message = PublicRunHeartbeat.model_validate(mapping)
+    elif message_type == "run.error":
+        message = PublicRunStreamError.model_validate(mapping)
+    else:
+        raise ValueError("public Run event type is unsupported")
+    if message.run_id != expected_run_id:
+        raise ValueError("public Run event run_id did not match the requested Run")
+    return message
 
 
 __all__ = ["RunsResource"]

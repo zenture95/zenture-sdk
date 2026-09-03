@@ -9,8 +9,11 @@ from typing import TYPE_CHECKING, cast
 import httpx
 
 from zenture._transport.base import (
+    MAX_RESPONSE_BYTES,
     build_timeout,
     build_url,
+    decode_bounded_json,
+    decode_bounded_text,
     default_headers,
     extract_error_code,
     has_idempotency_key,
@@ -26,7 +29,7 @@ from zenture.redaction import redact_text
 from zenture.retries import should_retry
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator, Iterable
 
     from zenture.config import ZentureConfig
 
@@ -76,7 +79,14 @@ class SyncTransport:
             json=json,
             params=params,
         )
-        return response.text
+        try:
+            return decode_bounded_text(
+                response.content,
+                encoding=response.encoding or "utf-8",
+                label="Public API response",
+            )
+        except ValueError:
+            raise ZentureResponseError("Public API response was too large.") from None
 
     def request_json(
         self,
@@ -87,7 +97,7 @@ class SyncTransport:
         headers: dict[str, str] | None = None,
         json: object | None = None,
         params: dict[str, str] | None = None,
-        content: object | None = None,
+        content: bytes | Iterable[bytes] | None = None,
         replayable: bool = True,
     ) -> object:
         """Request a JSON response and map public API errors."""
@@ -104,9 +114,13 @@ class SyncTransport:
         )
         response_error: ZentureResponseError | None = None
         try:
-            return response.json()
-        except ValueError:
-            response_error = ZentureResponseError("Public API response was not valid JSON.")
+            return decode_bounded_json(response.content, label="Public API response")
+        except ValueError as exc:
+            response_error = ZentureResponseError(
+                "Public API response was too large."
+                if "too large" in str(exc)
+                else "Public API response was not valid JSON."
+            )
         raise response_error
 
     @contextmanager
@@ -119,7 +133,7 @@ class SyncTransport:
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
         timeout: float | None = None,
-    ) -> Iterator[httpx.Response]:
+    ) -> Generator[httpx.Response, None, None]:
         """Open one non-buffered public stream without mutation retries."""
 
         request_headers = self._request_headers(auth=auth)
@@ -159,7 +173,7 @@ class SyncTransport:
         headers: dict[str, str] | None,
         json: object | None,
         params: dict[str, str] | None,
-        content: object | None = None,
+        content: bytes | Iterable[bytes] | None = None,
         replayable: bool = True,
     ) -> httpx.Response:
         request_headers = self._request_headers(auth=auth)
@@ -172,16 +186,22 @@ class SyncTransport:
             response: httpx.Response | None = None
             transport_error: ZentureTransportError | None = None
             try:
-                request_kwargs: dict[str, object] = {"headers": request_headers, "params": params}
                 if content is None:
-                    request_kwargs["json"] = json
+                    response = self._client.request(
+                        method,
+                        build_url(self._config, path),
+                        headers=request_headers,
+                        params=params,
+                        json=json,
+                    )
                 else:
-                    request_kwargs["content"] = content
-                response = self._client.request(
-                    method,
-                    build_url(self._config, path),
-                    **request_kwargs,
-                )
+                    response = self._client.request(
+                        method,
+                        build_url(self._config, path),
+                        headers=request_headers,
+                        params=params,
+                        content=content,
+                    )
             except httpx.HTTPError as exc:
                 decision = should_retry(
                     method=method,
@@ -213,10 +233,12 @@ class SyncTransport:
             payload: object | None = None
             response_error: ZentureResponseError | None = None
             try:
-                payload = response.json()
-            except ValueError:
+                payload = decode_bounded_json(response.content, label="Public API error response")
+            except ValueError as exc:
                 response_error = ZentureResponseError(
-                    "Public API error response was not valid JSON."
+                    "Public API error response was too large."
+                    if "too large" in str(exc)
+                    else "Public API error response was not valid JSON."
                 )
             if response_error is not None:
                 raise response_error
@@ -264,13 +286,27 @@ class SyncTransport:
 
 def _raise_stream_error(response: httpx.Response) -> None:
     try:
-        payload = response.json()
+        body = bytearray()
+        content_length = response.headers.get("Content-Length")
+        if content_length is not None and int(content_length) > MAX_RESPONSE_BYTES:
+            raise ValueError("too large")
+        for chunk in response.iter_bytes():
+            body.extend(chunk)
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise ValueError("too large")
+        payload = decode_bounded_json(bytes(body), label="Public API error response")
     except ValueError as exc:
-        raise ZentureResponseError("Public API error response was not valid JSON.") from exc
+        message = (
+            "Public API error response was too large."
+            if "too large" in str(exc)
+            else "Public API error response was not valid JSON."
+        )
+        raise ZentureResponseError(message) from None
     if not isinstance(payload, dict):
         raise ZentureResponseError("Public API error response was not an object.")
+    payload_dict = cast("dict[str, object]", payload)
     raise error_from_response(
         status_code=response.status_code,
-        payload=payload,
+        payload=payload_dict,
         headers=response.headers,
     )

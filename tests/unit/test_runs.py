@@ -7,23 +7,31 @@ import hashlib
 import io
 import json
 import time
+from functools import partial
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 import pytest
 
 from zenture import AsyncZenture, Zenture
 from zenture._contract import PublicRunEvent, PublicRunHeartbeat
-from zenture._resources.runs import _RunEventStreamState
+from zenture._contract.run_references import validate_run_cursor
+from zenture._resources.runs import RunEventStreamState
 from zenture.errors import (
     ZenturePollingStoppedError,
     ZenturePollingTimeoutError,
+    ZentureResponseError,
     ZentureTransportError,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator
 
 API_KEY = "zt_live_runs_test_abcdefghijklmnopqrstuvwxyz0123456789"
 RUN_ID = "run_33333333333343338333333333333333"
 PROPOSAL_ID = "33333333-3333-4333-8333-333333333333"
+MAX_STREAM_EVENT_BYTES = 512 * 1024
 
 
 def _proposal() -> dict[str, object]:
@@ -47,9 +55,9 @@ def _proposal() -> dict[str, object]:
     }
 
 
-def _run(*, status: str = "queued") -> dict[str, object]:
+def _run(*, status: str = "queued", run_id: str = RUN_ID) -> dict[str, object]:
     return {
-        "run_id": RUN_ID,
+        "run_id": run_id,
         "generation": 1,
         "family": "knowledge",
         "work_type": "answer",
@@ -98,6 +106,30 @@ def _sse_heartbeat(*, event_id: str, sequence: int) -> bytes:
         "sequence": sequence,
     }
     return f"event: run.heartbeat\ndata: {json.dumps(payload)}\n\n".encode()
+
+
+def _sse_message_for_run(message_type: str, run_id: str) -> bytes:
+    common: dict[str, object] = {
+        "type": message_type,
+        "event_id": "foreign_1",
+        "run_id": run_id,
+        "sequence": 1,
+    }
+    if message_type == "run.event":
+        common.update(
+            phase="running",
+            status="running",
+            message_key="run.status.running",
+            event_cursor="cursor_foreign",
+        )
+    elif message_type == "run.error":
+        common.update(
+            code="dependency_unavailable",
+            message="temporary",
+            retryable=False,
+            terminal=True,
+        )
+    return f"event: {message_type}\ndata: {json.dumps(common)}\n\n".encode()
 
 
 def _stream_response(*parts: bytes) -> httpx.Response:
@@ -176,6 +208,151 @@ def test_sync_iter_events_reconnects_deduplicates_and_stops_at_terminal() -> Non
     client.close()
 
 
+def test_sync_iter_events_rejects_oversized_record_before_json_decoding() -> None:
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _request: _stream_response(b"data: " + b"x" * MAX_STREAM_EVENT_BYTES)
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="too large"):
+        list(client.runs.iter_events(RUN_ID, initial_interval=0.0, max_interval=0.0))
+    client.close()
+
+
+@pytest.mark.parametrize("message_type", ["run.event", "run.heartbeat", "run.error"])
+def test_sync_iter_events_rejects_a_foreign_run_message(message_type: str) -> None:
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _request: _stream_response(
+                    _sse_message_for_run(message_type, "run_aaaaaaaaaaaaaaaa")
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="run_id"):
+        list(client.runs.iter_events(RUN_ID, initial_interval=0.0, max_interval=0.0))
+    client.close()
+
+
+def test_sync_replay_rejects_an_event_for_a_foreign_run() -> None:
+    payload = {
+        "events": [
+            {
+                "type": "run.event",
+                "event_id": "event_foreign",
+                "run_id": "run_aaaaaaaaaaaaaaaa",
+                "sequence": 1,
+                "phase": "running",
+                "status": "running",
+                "message_key": "run.status.running",
+                "event_cursor": "cursor_foreign",
+            }
+        ],
+        "has_more": False,
+        "next_cursor": None,
+    }
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=payload))
+        ),
+    )
+
+    with pytest.raises(ValueError, match="run_id"):
+        client.runs.list_events(RUN_ID)
+    client.close()
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        1,
+        b"cursor_bytes",
+        ["cursor_list"],
+        {"cursor": "mapping"},
+        "cursor with spaces",
+        "cursor\theader",
+        "cursor\nheader",
+        "x" * 513,
+    ],
+)
+def test_sync_run_cursor_is_rejected_before_query_or_header_forwarding(cursor: object) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(500)
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ValueError, match="^cursor is invalid$"):
+        client.runs.list(cursor=cast("Any", cursor))
+    with pytest.raises(ValueError, match="^cursor is invalid$"):
+        client.runs.list_events(RUN_ID, cursor=cast("Any", cursor))
+    with pytest.raises(ValueError, match="^cursor is invalid$"):
+        list(client.runs.iter_events(RUN_ID, last_event_id=cast("Any", cursor)))
+    client.close()
+    assert requests == []
+
+
+@pytest.mark.parametrize("cursor", [None, 1, b"cursor_bytes", [], {}, ()])
+def test_canonical_run_cursor_validator_rejects_every_non_string(cursor: object) -> None:
+    with pytest.raises(ValueError, match="^replay_cursor is invalid$"):
+        validate_run_cursor(cursor, field="replay_cursor")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        1,
+        b"cursor_bytes",
+        ["cursor_list"],
+        {"cursor": "mapping"},
+        "cursor with spaces",
+        "cursor\theader",
+        "cursor\nheader",
+        "x" * 513,
+    ],
+)
+async def test_async_run_cursor_is_rejected_before_query_or_header_forwarding(
+    cursor: object,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(500)
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(ValueError, match="^cursor is invalid$"):
+        await client.runs.list(cursor=cast("Any", cursor))
+    with pytest.raises(ValueError, match="^cursor is invalid$"):
+        await client.runs.list_events(RUN_ID, cursor=cast("Any", cursor))
+    with pytest.raises(ValueError, match="^cursor is invalid$"):
+        _ = [
+            message
+            async for message in client.runs.iter_events(
+                RUN_ID,
+                last_event_id=cast("Any", cursor),
+            )
+        ]
+    await client.aclose()
+    assert requests == []
+
+
 @pytest.mark.asyncio
 async def test_async_iter_events_reconnects_deduplicates_and_stops_at_terminal() -> None:
     responses = _reconnect_responses()
@@ -203,6 +380,81 @@ async def test_async_iter_events_reconnects_deduplicates_and_stops_at_terminal()
     assert len(requests) == 3
     assert requests[1].headers["last-event-id"] == "cursor_aaa"
     assert requests[2].headers["last-event-id"] == "cursor_aaa"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_iter_events_rejects_oversized_record_before_json_decoding() -> None:
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: _stream_response(b"data: " + b"x" * MAX_STREAM_EVENT_BYTES)
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="too large"):
+        _ = [
+            message
+            async for message in client.runs.iter_events(
+                RUN_ID, initial_interval=0.0, max_interval=0.0
+            )
+        ]
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message_type", ["run.event", "run.heartbeat", "run.error"])
+async def test_async_iter_events_rejects_a_foreign_run_message(message_type: str) -> None:
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: _stream_response(
+                    _sse_message_for_run(message_type, "run_aaaaaaaaaaaaaaaa")
+                )
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="run_id"):
+        _ = [
+            message
+            async for message in client.runs.iter_events(
+                RUN_ID, initial_interval=0.0, max_interval=0.0
+            )
+        ]
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_async_replay_rejects_an_event_for_a_foreign_run() -> None:
+    payload = {
+        "events": [
+            {
+                "type": "run.event",
+                "event_id": "event_foreign",
+                "run_id": "run_aaaaaaaaaaaaaaaa",
+                "sequence": 1,
+                "phase": "running",
+                "status": "running",
+                "message_key": "run.status.running",
+                "event_cursor": "cursor_foreign",
+            }
+        ],
+        "has_more": False,
+        "next_cursor": None,
+    }
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=payload))
+        ),
+    )
+
+    with pytest.raises(ValueError, match="run_id"):
+        await client.runs.list_events(RUN_ID)
     await client.aclose()
 
 
@@ -427,7 +679,7 @@ def test_sync_attach_artifact_streams_iterable_with_declared_size_and_hash() -> 
 async def test_async_attach_artifact_streams_async_iterable_with_declared_size_and_hash() -> None:
     content = b"async streamed bytes"
 
-    async def chunks():
+    async def chunks() -> AsyncIterator[bytes]:
         yield content[:5]
         yield content[5:]
 
@@ -548,11 +800,11 @@ def test_sync_attach_artifact_rejects_size_overrun_and_hash_mismatch() -> None:
 async def test_async_attach_artifact_rejects_size_overrun_and_hash_mismatch() -> None:
     content = b"bytes"
 
-    async def overrun_chunks():
+    async def overrun_chunks() -> AsyncIterator[bytes]:
         yield content
         yield b"extra"
 
-    async def bad_hash_chunks():
+    async def bad_hash_chunks() -> AsyncIterator[bytes]:
         yield content
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -616,7 +868,7 @@ def test_sync_attach_artifact_rejects_stream_without_declared_size() -> None:
 async def test_async_attach_artifact_rejects_stream_without_declared_size() -> None:
     requests: list[httpx.Request] = []
 
-    async def chunks():
+    async def chunks() -> AsyncIterator[bytes]:
         yield b"bytes"
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -655,7 +907,7 @@ def test_sync_attach_artifact_rejects_non_bytes_chunk() -> None:
             upload_id="upload_abcdefgh",
             file_name="answer.pdf",
             mime_type="application/pdf",
-            content=iter((b"byte", "s")),
+            content=cast("Any", iter((b"byte", "s"))),
             byte_size=5,
             content_hash=hashlib.sha256(b"bytes").hexdigest(),
             idempotency_key="artifact-stream-3",
@@ -666,7 +918,7 @@ def test_sync_attach_artifact_rejects_non_bytes_chunk() -> None:
 
 @pytest.mark.asyncio
 async def test_async_attach_artifact_rejects_non_bytes_chunk() -> None:
-    async def chunks():
+    async def chunks() -> AsyncIterator[Any]:
         yield b"byte"
         yield "s"
 
@@ -847,6 +1099,39 @@ def test_sync_wait_returns_when_queued_run_reaches_completed() -> None:
     client.close()
 
 
+@pytest.mark.parametrize("operation", ["get", "wait", "cancel", "record_outcome"])
+def test_sync_run_path_rejects_a_foreign_run_projection(operation: str) -> None:
+    foreign_run_id = "run_aaaaaaaaaaaaaaaa"
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200, json=_run(status="completed", run_id=foreign_run_id)
+                )
+            )
+        ),
+    )
+
+    if operation == "get":
+        operation_call = partial(client.runs.get, RUN_ID)
+    elif operation == "wait":
+        operation_call = partial(client.runs.wait, RUN_ID, timeout=1.0, initial_interval=0.0)
+    elif operation == "cancel":
+        operation_call = partial(client.runs.cancel, RUN_ID, idempotency_key="cancel-replay-1")
+    else:
+        operation_call = partial(
+            client.runs.record_outcome,
+            RUN_ID,
+            outcome="used",
+            idempotency_key="outcome-replay-1",
+        )
+
+    with pytest.raises(ZentureResponseError, match="run_id did not match"):
+        operation_call()
+    client.close()
+
+
 @pytest.mark.asyncio
 async def test_async_wait_returns_when_queued_run_reaches_completed() -> None:
     responses = [_run(), _run(status="completed")]
@@ -870,6 +1155,39 @@ async def test_async_wait_returns_when_queued_run_reaches_completed() -> None:
 
     assert result.status.value == "completed"
     assert len(seen) == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["get", "wait", "cancel", "record_outcome"])
+async def test_async_run_path_rejects_a_foreign_run_projection(operation: str) -> None:
+    foreign_run_id = "run_aaaaaaaaaaaaaaaa"
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200, json=_run(status="completed", run_id=foreign_run_id)
+                )
+            )
+        ),
+    )
+
+    if operation == "get":
+        operation_call = client.runs.get(RUN_ID)
+    elif operation == "wait":
+        operation_call = client.runs.wait(RUN_ID, timeout=1.0, initial_interval=0.0)
+    elif operation == "cancel":
+        operation_call = client.runs.cancel(RUN_ID, idempotency_key="cancel-replay-1")
+    else:
+        operation_call = client.runs.record_outcome(
+            RUN_ID,
+            outcome="used",
+            idempotency_key="outcome-replay-1",
+        )
+
+    with pytest.raises(ZentureResponseError, match="run_id did not match"):
+        await operation_call
     await client.aclose()
 
 
@@ -899,6 +1217,73 @@ def test_sync_run_helper_preserves_idempotency_and_wait_hint() -> None:
     assert result.run_id == RUN_ID
     assert seen[0].headers["idempotency-key"] == "run-1:prepare"
     client.close()
+
+
+def test_run_outcome_uses_canonical_adjudications_and_edited_artifact() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_run(status="completed"))
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    result = client.runs.record_outcome(
+        RUN_ID,
+        outcome="edited",
+        finding_adjudications=[{"finding_ref": "finding:one", "outcome": "confirmed"}],
+        edited_artifact_ref="art_edited_001",
+        idempotency_key="outcome-1",
+    )
+
+    assert result.status.value == "completed"
+    assert seen[0].read().decode() == (
+        '{"outcome":"edited","finding_adjudications":[{"finding_ref":"finding:one",'
+        '"outcome":"confirmed"}],"edited_artifact_ref":"art_edited_001"}'
+    )
+    client.close()
+
+
+def test_run_resources_reject_non_canonical_run_references_before_network() -> None:
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: pytest.fail("invalid Run reference reached the transport")
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="canonical public Run reference"):
+        client.runs.get("run:invalid")
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_run_outcome_uses_canonical_adjudications_and_edited_artifact() -> None:
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_run(status="completed"))
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    result = await client.runs.record_outcome(
+        RUN_ID,
+        outcome="edited",
+        finding_adjudications=[{"finding_ref": "finding:one", "outcome": "confirmed"}],
+        edited_artifact_ref="art_edited_001",
+        idempotency_key="outcome-1",
+    )
+
+    assert result.status.value == "completed"
+    assert b'"finding_adjudications":[{"finding_ref":"finding:one"' in seen[0].read()
+    await client.aclose()
 
 
 def test_sync_run_sse_parser_supports_event_and_heartbeat() -> None:
@@ -966,7 +1351,7 @@ def test_sync_attach_artifact_sends_bytes_with_upload_intent() -> None:
 
 @pytest.mark.asyncio
 async def test_async_run_resources_match_sync_event_surface() -> None:
-    stream = b"event: run.event\ndata: {\"type\":\"run.event\",\"event_id\":\"event_aaaaaaaa\",\"run_id\":\"run_33333333333343338333333333333333\",\"sequence\":1,\"phase\":\"completed\",\"status\":\"completed\",\"message_key\":\"run.status.completed\",\"event_cursor\":\"cursor_aaa\"}\n\n"
+    stream = b'event: run.event\ndata: {"type":"run.event","event_id":"event_aaaaaaaa","run_id":"run_33333333333343338333333333333333","sequence":1,"phase":"completed","status":"completed","message_key":"run.status.completed","event_cursor":"cursor_aaa"}\n\n'
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/events/stream")
@@ -978,6 +1363,7 @@ async def test_async_run_resources_match_sync_event_surface() -> None:
     )
     messages = [message async for message in client.runs.iter_events(RUN_ID)]
 
+    assert isinstance(messages[0], PublicRunEvent)
     assert messages[0].status == "completed"
     await client.aclose()
 
@@ -986,7 +1372,7 @@ class _StopAwareSyncStream(httpx.SyncByteStream):
     def __init__(self) -> None:
         self.closed = False
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[bytes]:
         yield _sse_heartbeat(event_id="heartbeat_aaa", sequence=1)
         raise AssertionError("idle stream was read after caller stop")
 
@@ -999,7 +1385,7 @@ class _IdleSyncStream(httpx.SyncByteStream):
         self.read_timeout = read_timeout
         self.closed = False
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[bytes]:
         time.sleep(self.read_timeout + 0.01)
         raise httpx.ReadTimeout("idle stream read timed out")
 
@@ -1011,7 +1397,7 @@ class _HeartbeatThenTimeoutSyncStream(httpx.SyncByteStream):
     def __init__(self) -> None:
         self.closed = False
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[bytes]:
         yield _sse_heartbeat(event_id="heartbeat_aaa", sequence=1)
         raise httpx.ReadTimeout("heartbeat checkpoint")
 
@@ -1023,7 +1409,7 @@ class _StopAwareAsyncStream(httpx.AsyncByteStream):
     def __init__(self) -> None:
         self.closed = False
 
-    async def __aiter__(self):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
         yield _sse_heartbeat(event_id="heartbeat_aaa", sequence=1)
         raise AssertionError("idle stream was read after caller stop")
 
@@ -1035,7 +1421,7 @@ class _IdleAsyncStream(httpx.AsyncByteStream):
     def __init__(self) -> None:
         self.closed = False
 
-    async def __aiter__(self):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
         await asyncio.sleep(60.0)
         yield b""
 
@@ -1318,7 +1704,10 @@ def test_sync_timeout_only_stream_reconfigures_at_final_deadline_window(
     def monotonic() -> float:
         return next(clock_values, 5.0)
 
-    fake_time = SimpleNamespace(monotonic=monotonic, sleep=lambda _: None)
+    def sleep(_seconds: float) -> None:
+        return None
+
+    fake_time = SimpleNamespace(monotonic=monotonic, sleep=sleep)
     monkeypatch.setattr(runs_module, "time", fake_time)
     requests: list[httpx.Request] = []
     read_timeouts: list[float] = []
@@ -1390,7 +1779,7 @@ async def test_async_iter_events_passes_remaining_timeout_to_stream() -> None:
 
 
 def test_run_event_dedupe_memory_is_bounded_for_long_streams() -> None:
-    state = _RunEventStreamState(cursor=None, initial_interval=0.0, max_interval=0.0)
+    state = RunEventStreamState(cursor=None, initial_interval=0.0, max_interval=0.0)
 
     for sequence in range(1, 2_049):
         state.accept(

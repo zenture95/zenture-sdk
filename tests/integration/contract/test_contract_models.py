@@ -482,3 +482,101 @@ def test_contract_surface_excludes_api_token_management_models() -> None:
 
     assert "ApiToken" not in "".join(exported_names)
     assert "API_TOKEN_MANAGEMENT_PATHS" not in exported_names
+
+
+def test_run_request_models_use_gateway_bounds_and_reference_grammar() -> None:
+    from pydantic import ValidationError
+
+    from zenture._contract import PrepareKnowledgeRunRequest, RunTextArtifact
+
+    PrepareKnowledgeRunRequest.model_validate(
+        {"task": "x" * 20_000, "artifact": {"type": "text", "value": "x" * 50_000}}
+    )
+    PrepareKnowledgeRunRequest.model_validate(
+        {"task": "😀" * 20_000, "artifact": {"type": "text", "value": "é" * 50_000}}
+    )
+    RunTextArtifact(type="text", value="x" * 20_000)
+    RunTextArtifact(type="text", value="x" * 50_000)
+
+    with pytest.raises(ValidationError):
+        PrepareKnowledgeRunRequest.model_validate(
+            {"task": "x" * 20_001, "artifact": {"type": "text", "value": "x"}}
+        )
+    with pytest.raises(ValidationError):
+        RunTextArtifact(type="text", value="x" * 50_001)
+    for value in ("HTTPS://example.invalid", "data:text/plain,x", "file:///tmp/input"):
+        with pytest.raises(ValidationError):
+            RunTextArtifact(type="text", value=value)
+
+
+def test_run_success_models_enforce_gateway_upload_and_cursor_constraints() -> None:
+    from pydantic import ValidationError
+
+    from zenture._contract import (
+        ArtifactUploadResponse,
+        ListRunEventsResponse,
+        ListRunsResponse,
+        PublicRunEvent,
+        PublicRunResponse,
+        SignedUploadResponse,
+    )
+
+    upload = "upload_abcdefgh"
+    ArtifactUploadResponse(
+        upload_id=upload,
+        artifact_ref="art_abcdefgh",
+        content_hash="a" * 64,
+        byte_size=1,
+        content_type="text/plain",
+    )
+    SignedUploadResponse.model_validate({"upload_id": upload, "expires_at": "2026-01-01T00:00:00Z"})
+    for invalid in ("short", "upload_bad value", "upload_abc"):
+        with pytest.raises(ValidationError):
+            SignedUploadResponse.model_validate(
+                {"upload_id": invalid, "expires_at": "2026-01-01T00:00:00Z"}
+            )
+    for response_type in (ListRunsResponse, ListRunEventsResponse):
+        for invalid in (
+            "x" * 513,
+            "cursor with spaces",
+            "cursor+plus",
+            "cursor/slash",
+            "cursor\nheader",
+            "é",
+        ):
+            with pytest.raises(ValidationError):
+                response_type.model_validate(
+                    {
+                        "runs" if response_type is ListRunsResponse else "events": [],
+                        "has_more": False,
+                        "next_cursor": invalid,
+                    }
+                )
+
+    run = {
+        "run_id": "run_1234567890abcdef",
+        "generation": 1,
+        "family": "knowledge",
+        "work_type": "answer",
+        "profile": "standard",
+        "status": "completed",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    for invalid in ("cursor with spaces", "cursor+plus", "cursor\nheader"):
+        with pytest.raises(ValidationError):
+            PublicRunResponse.model_validate({**run, "event_cursor": invalid})
+
+    event = {
+        "type": "run.event",
+        "event_id": "event_1",
+        "run_id": "run_1234567890abcdef",
+        "sequence": 1,
+        "phase": "completed",
+        "status": "completed",
+        "message_key": "run.completed",
+        "event_cursor": "cursor_1",
+    }
+    for invalid in ("", "ref with spaces", "ref+plus", "ref?query", "ref#fragment", "é"):
+        with pytest.raises(ValidationError):
+            PublicRunEvent.model_validate({**event, "terminal_refs": [invalid]})

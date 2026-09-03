@@ -10,6 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, field_validator, model_validator
 
+from zenture._contract.run_references import validate_run_cursor
 from zenture.models import SDKBaseModel
 
 if TYPE_CHECKING:
@@ -35,9 +36,8 @@ PRODUCT_TOOL_NAMES: tuple[McpToolName, ...] = (
 
 BearerTokenProvider = Callable[[], str]
 
-_RUN_ID = re.compile(r"^run_[A-Za-z0-9_.:-]{8,128}$")
-_CURSOR = re.compile(r"^[A-Za-z0-9._~-]{1,512}$")
-_ARTIFACT_REF = re.compile(r"^art_[A-Za-z0-9_.:-]{3,128}$")
+_RUN_ID = re.compile(r"^run_[A-Za-z0-9_-]{3,128}$")
+_ARTIFACT_REF = re.compile(r"^art_[A-Za-z0-9_-]{3,128}$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _CANONICAL_MCP_HOSTS = frozenset(
     {
@@ -127,12 +127,12 @@ class McpListRunsRequest(SDKBaseModel):
             raise ValueError("MCP list filters are bounded to eight short values")
         return value
 
-    @field_validator("cursor")
+    @field_validator("cursor", mode="before")
     @classmethod
-    def _cursor(cls, value: str | None) -> str | None:
-        if value is not None and _CURSOR.fullmatch(value) is None:
-            raise ValueError("cursor is invalid")
-        return value
+    def _cursor(cls, value: object) -> object:
+        if value is None:
+            return None
+        return validate_run_cursor(value)
 
 
 class McpGetRunRequest(SDKBaseModel):
@@ -150,12 +150,12 @@ class McpGetRunRequest(SDKBaseModel):
             raise ValueError("run_id is invalid")
         return value
 
-    @field_validator("replay_cursor")
+    @field_validator("replay_cursor", mode="before")
     @classmethod
-    def _cursor(cls, value: str | None) -> str | None:
-        if value is not None and _CURSOR.fullmatch(value) is None:
-            raise ValueError("replay_cursor is invalid")
-        return value
+    def _cursor(cls, value: object) -> object:
+        if value is None:
+            return None
+        return validate_run_cursor(value, field="replay_cursor")
 
 
 class McpFindingAdjudication(SDKBaseModel):
@@ -171,7 +171,7 @@ class McpOutcomeRequest(SDKBaseModel):
     run_id: str
     outcome: Literal["used", "edited", "rejected", "escalated", "not_sure"]
     finding_adjudications: tuple[McpFindingAdjudication, ...] = Field(default=(), max_length=20)
-    edited_artifact_ref: str | None = Field(default=None, max_length=128)
+    edited_artifact_ref: str | None = Field(default=None, min_length=7, max_length=132)
 
     @field_validator("run_id")
     @classmethod

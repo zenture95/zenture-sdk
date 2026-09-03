@@ -25,18 +25,23 @@ from zenture._contract import (
     RecordRunOutcomeRequest,
     SignedUploadResponse,
 )
+from zenture._contract.run_references import validate_run_cursor
 from zenture._resources._utils import idempotency_headers, parse_response, path_segment
 from zenture._resources.runs import (
-    _ARTIFACT_CHUNK_SIZE,
-    _add_wait_header,
-    _is_retryable_stream_error,
-    _is_terminal_status,
-    _is_terminal_stream_message,
-    _phase_key,
-    _remaining_stream_timeout,
-    _required_artifact_size,
-    _run_list_params,
-    _RunEventStreamState,
+    ARTIFACT_CHUNK_SIZE,
+    MAX_STREAM_EVENT_BYTES,
+    RunEventStreamState,
+    add_wait_header,
+    is_retryable_stream_error,
+    is_terminal_status,
+    is_terminal_stream_message,
+    parse_run_response,
+    phase_key,
+    remaining_stream_timeout,
+    required_artifact_size,
+    run_list_params,
+    validate_run_event_replay,
+    validate_run_id,
 )
 from zenture.errors import (
     ZentureAPIError,
@@ -61,7 +66,7 @@ async def _validated_async_artifact_chunks(
     read = getattr(source, "read", None)
     if callable(read):
         while True:
-            chunk = read(_ARTIFACT_CHUNK_SIZE)
+            chunk = read(ARTIFACT_CHUNK_SIZE)
             if inspect.isawaitable(chunk):
                 chunk = await chunk
             if chunk == b"":
@@ -99,7 +104,7 @@ def _prepare_async_artifact_content(
     mime_type: str,
     upload_id: str,
     content_hash: str,
-) -> tuple[object, int, bool]:
+) -> tuple[bytes | AsyncIterable[bytes], int, bool]:
     if isinstance(content, bytes):
         if not content:
             raise ValueError("content must be non-empty bytes")
@@ -117,9 +122,9 @@ def _prepare_async_artifact_content(
             raise ValueError("content_hash does not match content")
         return content, upload_size, True
 
-    if isinstance(content, (bytearray, memoryview, str)):
+    if isinstance(content, bytearray | memoryview | str):
         raise ValueError("content must be bytes, an async iterable, or a binary file")
-    upload_size = _required_artifact_size(byte_size)
+    upload_size = required_artifact_size(byte_size)
     ArtifactUploadRequest(
         upload_id=upload_id,
         file_name=file_name,
@@ -152,11 +157,13 @@ class AsyncRunsResource:
         idempotency_key: str,
         profile: str = "standard",
     ) -> PrepareKnowledgeRunResponse:
-        body = PrepareKnowledgeRunRequest(task=task, artifact=artifact, profile=profile)
+        body = PrepareKnowledgeRunRequest.model_validate(
+            {"task": task, "artifact": artifact, "profile": profile}
+        )
         payload = await self._transport.request_json(
             "POST",
             "/runs/prepare",
-            headers=idempotency_headers(_phase_key(idempotency_key, "prepare")),
+            headers=idempotency_headers(phase_key(idempotency_key, "prepare")),
             json=body.model_dump(mode="json", exclude_defaults=True),
         )
         return parse_response(PrepareKnowledgeRunResponse, payload)
@@ -169,9 +176,11 @@ class AsyncRunsResource:
         idempotency_key: str,
         wait: int | None = None,
     ) -> PublicRunResponse:
-        body = CreateRunRequest(proposal_id=proposal_id, proposal_hash=proposal_hash)
-        headers = idempotency_headers(_phase_key(idempotency_key, "create"))
-        _add_wait_header(headers, wait)
+        body = CreateRunRequest.model_validate(
+            {"proposal_id": proposal_id, "proposal_hash": proposal_hash}
+        )
+        headers = idempotency_headers(phase_key(idempotency_key, "create"))
+        add_wait_header(headers, wait)
         payload = await self._transport.request_json(
             "POST", "/runs", headers=headers, json=body.model_dump(mode="json")
         )
@@ -212,7 +221,7 @@ class AsyncRunsResource:
         limit: int = 5,
         cursor: str | None = None,
     ) -> ListRunsResponse:
-        params = _run_list_params(
+        params = run_list_params(
             status=status,
             decision=decision,
             profile=profile,
@@ -225,27 +234,28 @@ class AsyncRunsResource:
         return parse_response(ListRunsResponse, payload)
 
     async def get(self, run_id: str, *, view: str = "summary") -> PublicRunResponse:
+        validate_run_id(run_id)
         if view not in {"summary", "full"}:
             raise ValueError("view must be summary or full")
         payload = await self._transport.request_json(
             "GET", f"/runs/{path_segment(run_id)}", params={"view": view}
         )
-        return parse_response(PublicRunResponse, payload)
+        return parse_run_response(payload, expected_run_id=run_id)
 
     async def list_events(
         self, run_id: str, *, cursor: str | None = None, limit: int = 50
     ) -> ListRunEventsResponse:
+        validate_run_id(run_id)
         if type(limit) is not int or limit < 1 or limit > 50:
             raise ValueError("limit must be between 1 and 50")
         params = {"limit": str(limit)}
         if cursor is not None:
-            if not cursor or len(cursor) > 512:
-                raise ValueError("cursor must be between 1 and 512 characters")
-            params["cursor"] = cursor
+            params["cursor"] = validate_run_cursor(cursor)
         payload = await self._transport.request_json(
             "GET", f"/runs/{path_segment(run_id)}/events", params=params
         )
-        return parse_response(ListRunEventsResponse, payload)
+        response = parse_response(ListRunEventsResponse, payload)
+        return validate_run_event_replay(response, expected_run_id=run_id)
 
     async def iter_events(
         self,
@@ -257,10 +267,11 @@ class AsyncRunsResource:
         max_interval: float = 8.0,
         stop: Callable[[], bool] | None = None,
     ) -> AsyncIterator[PublicRunStreamMessage]:
+        validate_run_id(run_id)
         if timeout is not None and timeout <= 0:
             raise ValueError("timeout must be positive")
         deadline = time.monotonic() + timeout if timeout is not None else None
-        state = _RunEventStreamState(
+        state = RunEventStreamState(
             cursor=last_event_id,
             initial_interval=initial_interval,
             max_interval=max_interval,
@@ -276,7 +287,7 @@ class AsyncRunsResource:
                 headers["Last-Event-ID"] = state.cursor
             progressed = False
             try:
-                stream_timeout = _remaining_stream_timeout(run_id=run_id, deadline=deadline)
+                stream_timeout = remaining_stream_timeout(run_id=run_id, deadline=deadline)
                 async with asyncio.timeout(stream_timeout):
                     async with self._transport.stream(
                         "GET",
@@ -284,13 +295,15 @@ class AsyncRunsResource:
                         headers=headers,
                         timeout=stream_timeout,
                     ) as response:
-                        async for message in _parse_sse_events_async(response.aiter_lines()):
+                        async for message in _parse_sse_events_async(
+                            response.aiter_lines(), expected_run_id=run_id
+                        ):
                             emit, message_progressed = state.accept(message)
                             progressed = progressed or message_progressed
                             if not emit:
                                 continue
                             yield message
-                            if _is_terminal_stream_message(message):
+                            if is_terminal_stream_message(message):
                                 return
                             if callable(stop) and stop():
                                 raise ZenturePollingStoppedError(operation_id=run_id)
@@ -305,7 +318,7 @@ class AsyncRunsResource:
                     raise
                 raise ZenturePollingTimeoutError(operation_id=run_id) from exc
             except (ZentureAPIError, ZentureTransportError) as exc:
-                if not _is_retryable_stream_error(exc):
+                if not is_retryable_stream_error(exc):
                     raise
 
             if callable(stop) and stop():
@@ -328,6 +341,7 @@ class AsyncRunsResource:
         max_interval: float = 8.0,
         stop: Any = None,
     ) -> PublicRunResponse:
+        validate_run_id(run_id)
         if timeout <= 0:
             raise ValueError("timeout must be positive")
         deadline = time.monotonic() + timeout
@@ -338,19 +352,20 @@ class AsyncRunsResource:
             if time.monotonic() >= deadline:
                 raise ZenturePollingTimeoutError(operation_id=run_id)
             result = await self.get(run_id)
-            if _is_terminal_status(result.status):
+            if is_terminal_status(result.status):
                 return result
             await asyncio.sleep(min(interval, max(0.0, deadline - time.monotonic())))
             interval = min(interval * 2, max_interval)
 
     async def cancel(self, run_id: str, *, idempotency_key: str) -> PublicRunResponse:
+        validate_run_id(run_id)
         payload = await self._transport.request_json(
             "POST",
             f"/runs/{path_segment(run_id)}/cancel",
             headers=idempotency_headers(idempotency_key),
             json={},
         )
-        return parse_response(PublicRunResponse, payload)
+        return parse_run_response(payload, expected_run_id=run_id)
 
     async def record_outcome(
         self,
@@ -358,16 +373,24 @@ class AsyncRunsResource:
         *,
         outcome: str,
         idempotency_key: str,
-        outcome_ref: str | None = None,
+        finding_adjudications: Sequence[dict[str, Any]] | None = None,
+        edited_artifact_ref: str | None = None,
     ) -> PublicRunResponse:
-        body = RecordRunOutcomeRequest(outcome=outcome, outcome_ref=outcome_ref)
+        validate_run_id(run_id)
+        body = RecordRunOutcomeRequest.model_validate(
+            {
+                "outcome": outcome,
+                "finding_adjudications": list(finding_adjudications or ()),
+                "edited_artifact_ref": edited_artifact_ref,
+            }
+        )
         payload = await self._transport.request_json(
             "POST",
             f"/runs/{path_segment(run_id)}/outcome",
             headers=idempotency_headers(idempotency_key),
             json=body.model_dump(mode="json", exclude_none=True),
         )
-        return parse_response(PublicRunResponse, payload)
+        return parse_run_response(payload, expected_run_id=run_id)
 
     async def signed_upload(
         self,
@@ -429,21 +452,29 @@ class AsyncRunsResource:
         return parse_response(ArtifactUploadResponse, payload)
 
 
-async def _parse_sse_events_async(lines: AsyncIterator[str]) -> AsyncIterator[PublicRunStreamMessage]:
+async def _parse_sse_events_async(
+    lines: AsyncIterator[str],
+    *,
+    expected_run_id: str,
+) -> AsyncIterator[PublicRunStreamMessage]:
     data: list[str] = []
     event_type = ""
+    event_bytes = 0
     async for raw_line in lines:
         line = str(raw_line)
+        event_bytes += len(line.encode("utf-8")) + 1
+        if event_bytes > MAX_STREAM_EVENT_BYTES:
+            raise ValueError("public Run event stream record is too large")
         if not line:
             if data:
                 try:
-                    yield _parse_stream_message(
-                        json.loads("\n".join(data)), event_type
-                    )
+                    payload = json.loads("\n".join(data))
                 except (TypeError, ValueError):
                     raise ValueError("public Run event stream contained invalid JSON") from None
+                yield _parse_stream_message(payload, event_type, expected_run_id=expected_run_id)
                 data.clear()
                 event_type = ""
+            event_bytes = 0
             continue
         if line.startswith(":") or line.startswith("id:"):
             continue
@@ -454,17 +485,24 @@ async def _parse_sse_events_async(lines: AsyncIterator[str]) -> AsyncIterator[Pu
             data.append(line[5:].lstrip())
 
 
-def _parse_stream_message(payload: object, event_type: str) -> PublicRunStreamMessage:
+def _parse_stream_message(
+    payload: object, event_type: str, *, expected_run_id: str
+) -> PublicRunStreamMessage:
     if not isinstance(payload, dict):
         raise ValueError("public Run event payload must be an object")
-    message_type = payload.get("type") or event_type
+    mapping = cast("dict[str, object]", payload)
+    message_type = mapping.get("type") or event_type
     if message_type == "run.event":
-        return PublicRunEvent.model_validate(payload)
-    if message_type == "run.heartbeat":
-        return PublicRunHeartbeat.model_validate(payload)
-    if message_type == "run.error":
-        return PublicRunStreamError.model_validate(payload)
-    raise ValueError("public Run event type is unsupported")
+        message: PublicRunStreamMessage = PublicRunEvent.model_validate(mapping)
+    elif message_type == "run.heartbeat":
+        message = PublicRunHeartbeat.model_validate(mapping)
+    elif message_type == "run.error":
+        message = PublicRunStreamError.model_validate(mapping)
+    else:
+        raise ValueError("public Run event type is unsupported")
+    if message.run_id != expected_run_id:
+        raise ValueError("public Run event run_id did not match the requested Run")
+    return message
 
 
 __all__ = ["AsyncRunsResource"]
