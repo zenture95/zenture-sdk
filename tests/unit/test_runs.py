@@ -1349,6 +1349,69 @@ def test_sync_attach_artifact_sends_bytes_with_upload_intent() -> None:
     client.close()
 
 
+def test_sync_signed_upload_omits_optional_upload_id() -> None:
+    content_hash = hashlib.sha256(b"bytes").hexdigest()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/run-artifacts/signed-upload"
+        assert "upload_id" not in request.content.decode()
+        return httpx.Response(
+            200,
+            json={
+                "upload_id": "upload_abcdefgh",
+                "expires_at": "2026-06-15T10:00:00Z",
+                "upload_url": "/v1/run-artifacts",
+            },
+        )
+
+    client = Zenture(
+        api_key=API_KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    upload = client.runs.signed_upload(
+        file_name="answer.txt",
+        mime_type="text/plain",
+        byte_size=5,
+        content_hash=content_hash,
+        idempotency_key="signed-upload-1",
+    )
+
+    assert upload.upload_id == "upload_abcdefgh"
+    client.close()
+
+
+@pytest.mark.asyncio
+async def test_async_signed_upload_omits_optional_upload_id() -> None:
+    content_hash = hashlib.sha256(b"bytes").hexdigest()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/run-artifacts/signed-upload"
+        assert "upload_id" not in request.content.decode()
+        return httpx.Response(
+            200,
+            json={
+                "upload_id": "upload_abcdefgh",
+                "expires_at": "2026-06-15T10:00:00Z",
+                "upload_url": "/v1/run-artifacts",
+            },
+        )
+
+    client = AsyncZenture(
+        api_key=API_KEY,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    upload = await client.runs.signed_upload(
+        file_name="answer.txt",
+        mime_type="text/plain",
+        byte_size=5,
+        content_hash=content_hash,
+        idempotency_key="signed-upload-1",
+    )
+
+    assert upload.upload_id == "upload_abcdefgh"
+    await client.aclose()
+
+
 @pytest.mark.asyncio
 async def test_async_run_resources_match_sync_event_surface() -> None:
     stream = b'event: run.event\ndata: {"type":"run.event","event_id":"event_aaaaaaaa","run_id":"run_33333333333343338333333333333333","sequence":1,"phase":"completed","status":"completed","message_key":"run.status.completed","event_cursor":"cursor_aaa"}\n\n'

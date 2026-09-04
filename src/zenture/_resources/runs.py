@@ -605,7 +605,7 @@ class RunsResource:
             "POST",
             "/run-artifacts/signed-upload",
             headers=idempotency_headers(idempotency_key),
-            json=body.model_dump(mode="json"),
+            json=body.model_dump(mode="json", exclude_none=True),
         )
         return parse_response(SignedUploadResponse, payload)
 
