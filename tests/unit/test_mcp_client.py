@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -99,6 +100,18 @@ def _tool_result(payload: object, *, is_error: bool = False) -> ToolResult:
 @dataclass
 class ToolResult:
     structured_content: object
+    is_error: bool = False
+
+
+@dataclass
+class TextContent:
+    type: str
+    text: str
+
+
+@dataclass
+class TextOnlyToolResult:
+    content: list[TextContent]
     is_error: bool = False
 
 
@@ -441,6 +454,36 @@ def test_mcp_result_boundary_accepts_protocol_structured_content_alias() -> None
     read = McpClient(RawTransport({"structuredContent": _run()})).get_run(RUN_ID)
 
     assert read.run.run_id == RUN_ID
+
+
+def test_mcp_result_boundary_accepts_bounded_json_text_content() -> None:
+    result = TextOnlyToolResult(
+        content=[TextContent(type="text", text=json.dumps(_run(), separators=(",", ":")))]
+    )
+
+    read = McpClient(RawTransport(result)).get_run(RUN_ID)
+
+    assert read.run.run_id == RUN_ID
+
+
+def test_mcp_result_boundary_decodes_bounded_json_text_errors() -> None:
+    result = TextOnlyToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {"error": {"code": "forbidden", "http_status": 403}},
+                    separators=(",", ":"),
+                ),
+            )
+        ],
+        is_error=True,
+    )
+
+    with pytest.raises(ZentureMCPError) as error:
+        McpClient(RawTransport(result)).get_run(RUN_ID)
+
+    assert error.value.code == "forbidden"
 
 
 def test_mcp_result_boundary_rejects_mcp_error_flag_without_safe_error_envelope() -> None:

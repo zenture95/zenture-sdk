@@ -105,13 +105,38 @@ def _structured_content(result: object) -> object:
     if result_mapping is not None:
         for key in ("structured_content", "structuredContent"):
             if key in result_mapping:
-                return result_mapping[key]
-        return result_mapping
-    for name in ("structured_content", "structuredContent"):
-        value = getattr(result, name, None)
-        if value is not None:
-            return value
-    return None
+                value = result_mapping[key]
+                if value is not None:
+                    return value
+        content = result_mapping.get("content")
+    else:
+        for name in ("structured_content", "structuredContent"):
+            value = getattr(result, name, None)
+            if value is not None:
+                return value
+        content = getattr(result, "content", None)
+    if not isinstance(content, (list, tuple)) or len(content) != 1:
+        return result_mapping if result_mapping is not None else None
+    block = content[0]
+    block_mapping = _mapping(block)
+    block_type = (
+        block_mapping.get("type")
+        if block_mapping is not None
+        else getattr(block, "type", None)
+    )
+    text = (
+        block_mapping.get("text")
+        if block_mapping is not None
+        else getattr(block, "text", None)
+    )
+    if block_type != "text" or not isinstance(text, str):
+        return result_mapping if result_mapping is not None else None
+    if len(text.encode("utf-8")) > _MAX_RESULT_BYTES:
+        raise ZentureMCPProtocolError("result_too_large")
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ZentureMCPProtocolError("invalid_result") from exc
 
 
 def _is_error_result(result: object) -> bool:
