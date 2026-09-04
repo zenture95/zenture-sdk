@@ -610,6 +610,20 @@ def test_mcp_client_replay_requires_an_explicit_replay_page() -> None:
         )
 
 
+def test_mcp_client_replay_requests_the_first_page_explicitly() -> None:
+    transport = RecordingTransport(_responses())
+
+    replay = McpClient(transport).replay_events(RUN_ID)
+
+    assert isinstance(replay, ListRunEventsResponse)
+    assert transport.calls[0][1] == {
+        "run_id": RUN_ID,
+        "view": "summary",
+        "replay_limit": 50,
+        "include_event_replay": True,
+    }
+
+
 def test_sync_mcp_replay_rejects_a_foreign_run_projection_and_event() -> None:
     foreign_run = "run_aaaaaaaaaaaaaaaa"
     foreign_projection = {**_run(), "run_id": foreign_run, "event_replay": _events()}

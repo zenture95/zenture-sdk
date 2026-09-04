@@ -142,6 +142,7 @@ class McpGetRunRequest(SDKBaseModel):
     view: Literal["summary", "full"] = "summary"
     replay_cursor: str | None = Field(default=None, max_length=512)
     replay_limit: int = Field(default=50, ge=1, le=50)
+    include_event_replay: bool = False
 
     @field_validator("run_id")
     @classmethod

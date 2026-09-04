@@ -368,15 +368,20 @@ class McpClient:
         view: Literal["summary", "full"] = "summary",
         replay_cursor: str | None = None,
         replay_limit: int = 50,
+        include_event_replay: bool = False,
     ) -> McpRunRead:
         request = McpGetRunRequest(
             run_id=run_id,
             view=view,
             replay_cursor=replay_cursor,
             replay_limit=replay_limit,
+            include_event_replay=include_event_replay,
         )
+        arguments = request.model_dump(mode="json", exclude_none=True)
+        if not include_event_replay:
+            arguments.pop("include_event_replay", None)
         return _read_result(
-            self._call("get_run", request.model_dump(mode="json", exclude_none=True)),
+            self._call("get_run", arguments),
             expected_run_id=request.run_id,
         )
 
@@ -387,6 +392,7 @@ class McpClient:
             run_id,
             replay_cursor=cursor,
             replay_limit=limit,
+            include_event_replay=True,
         )
         if read.event_replay is None:
             raise ZentureMCPProtocolError("event_replay_missing")
@@ -539,22 +545,32 @@ class AsyncMcpClient:
         view: Literal["summary", "full"] = "summary",
         replay_cursor: str | None = None,
         replay_limit: int = 50,
+        include_event_replay: bool = False,
     ) -> McpRunRead:
         request = McpGetRunRequest(
             run_id=run_id,
             view=view,
             replay_cursor=replay_cursor,
             replay_limit=replay_limit,
+            include_event_replay=include_event_replay,
         )
+        arguments = request.model_dump(mode="json", exclude_none=True)
+        if not include_event_replay:
+            arguments.pop("include_event_replay", None)
         return _read_result(
-            await self._call("get_run", request.model_dump(mode="json", exclude_none=True)),
+            await self._call("get_run", arguments),
             expected_run_id=request.run_id,
         )
 
     async def replay_events(
         self, run_id: str, *, cursor: str | None = None, limit: int = 50
     ) -> ListRunEventsResponse:
-        read = await self.get_run(run_id, replay_cursor=cursor, replay_limit=limit)
+        read = await self.get_run(
+            run_id,
+            replay_cursor=cursor,
+            replay_limit=limit,
+            include_event_replay=True,
+        )
         if read.event_replay is None:
             raise ZentureMCPProtocolError("event_replay_missing")
         return read.event_replay
