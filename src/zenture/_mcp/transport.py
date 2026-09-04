@@ -6,7 +6,7 @@ import asyncio
 import importlib
 import inspect
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, Protocol, TypeAlias
 
 from zenture._mcp.contracts import BearerTokenProvider, McpEndpoint
@@ -104,25 +104,32 @@ async def open_streamable_http_transport(
     yielded = False
     body_completed = False
     try:
-        async with (
-            async_client(
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=timeout_type(timeout, read=timeout),
-                follow_redirects=False,
-            ) as http_client,
-            streamablehttp_client(target.url, http_client=http_client) as streams,
-        ):
+        async with AsyncExitStack() as stack:
+            http_client = await stack.enter_async_context(
+                async_client(
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=timeout_type(timeout, read=timeout),
+                    follow_redirects=False,
+                )
+            )
+            streams = await stack.enter_async_context(
+                streamablehttp_client(target.url, http_client=http_client)
+            )
             read_stream, write_stream = streams
-            async with client_session(read_stream, write_stream) as session:
-                await session.initialize()
-                yielded = True
-                yield _OfficialAsyncMcpTransport(session)
-                body_completed = True
+            session = await stack.enter_async_context(
+                client_session(read_stream, write_stream)
+            )
+            await session.initialize()
+            yielded = True
+            yield _OfficialAsyncMcpTransport(session)
+            body_completed = True
     except asyncio.CancelledError:
         raise
     except ZentureMCPError:
         raise
     except Exception as exc:
+        if body_completed:
+            return
         if yielded and not body_completed:
             raise
         raise ZentureMCPError(

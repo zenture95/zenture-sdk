@@ -1001,7 +1001,7 @@ async def test_official_transport_preserves_cancellation(
             pass
 
     class CancelledClient:
-        def __init__(self, **_kwargs: object) -> None:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
             pass
 
         async def __aenter__(self) -> CancelledClient:
@@ -1165,6 +1165,56 @@ async def test_official_transport_preserves_body_failures(
             bearer_token="opaque",
         ):
             raise RuntimeError("body failure")
+
+
+@pytest.mark.asyncio
+async def test_official_transport_does_not_fail_after_successful_body_on_close_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._mcp.transport as transport_module
+
+    class Context:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> Context:
+            return self
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            pass
+
+    class FailingStream(Context):
+        async def __aenter__(self) -> tuple[object, object]:
+            return object(), object()
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            raise RuntimeError("close failure")
+
+    class Session(Context):
+        async def initialize(self) -> None:
+            pass
+
+    def import_module(name: str) -> object:
+        if name == "mcp":
+            return SimpleNamespace(ClientSession=Session)
+        if name == "mcp.client.streamable_http":
+            return SimpleNamespace(
+                streamable_http_client=lambda *_args, **_kwargs: FailingStream()
+            )
+        if name == "httpx2":
+            class Timeout:
+                def __init__(self, *_args: object, **_kwargs: object) -> None:
+                    pass
+
+            return SimpleNamespace(AsyncClient=Context, Timeout=Timeout)
+        raise AssertionError(name)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+    async with transport_module.open_streamable_http_transport(
+        "https://mcp.zenture.app",
+        bearer_token="opaque",
+    ):
+        pass
 
 
 @pytest.mark.asyncio
