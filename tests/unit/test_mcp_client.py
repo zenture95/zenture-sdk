@@ -1116,6 +1116,58 @@ async def test_official_transport_maps_session_failures_to_safe_transport_error(
 
 
 @pytest.mark.asyncio
+async def test_official_transport_preserves_body_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import zenture._mcp.transport as transport_module
+
+    class Context:
+        async def __aenter__(self) -> Context:
+            return self
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            pass
+
+    class Session(Context):
+        def __init__(self, *_args: object) -> None:
+            pass
+
+        async def initialize(self) -> None:
+            pass
+
+    def import_module(name: str) -> object:
+        if name == "mcp":
+            return SimpleNamespace(ClientSession=Session)
+        if name == "mcp.client.streamable_http":
+            class StreamContext(Context):
+                async def __aenter__(self) -> tuple[object, object]:
+                    return object(), object()
+
+            return SimpleNamespace(
+                streamable_http_client=lambda *_args, **_kwargs: StreamContext()
+            )
+        if name == "httpx2":
+            class Timeout:
+                def __init__(self, *_args: object, **_kwargs: object) -> None:
+                    pass
+
+            class HttpClient(Context):
+                def __init__(self, **_kwargs: object) -> None:
+                    pass
+
+            return SimpleNamespace(AsyncClient=HttpClient, Timeout=Timeout)
+        raise AssertionError(name)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+    with pytest.raises(RuntimeError, match="body failure"):
+        async with transport_module.open_streamable_http_transport(
+            "https://mcp.zenture.app",
+            bearer_token="opaque",
+        ):
+            raise RuntimeError("body failure")
+
+
+@pytest.mark.asyncio
 async def test_official_transport_rejects_invalid_timeout_before_optional_import() -> None:
     import zenture._mcp.transport as transport_module
 

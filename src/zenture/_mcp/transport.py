@@ -101,6 +101,8 @@ async def open_streamable_http_transport(
     except (ImportError, AttributeError) as exc:
         raise ZentureMCPDependencyError() from exc
 
+    yielded = False
+    body_completed = False
     try:
         async with (
             async_client(
@@ -113,12 +115,16 @@ async def open_streamable_http_transport(
             read_stream, write_stream = streams
             async with client_session(read_stream, write_stream) as session:
                 await session.initialize()
+                yielded = True
                 yield _OfficialAsyncMcpTransport(session)
+                body_completed = True
     except asyncio.CancelledError:
         raise
     except ZentureMCPError:
         raise
     except Exception as exc:
+        if yielded and not body_completed:
+            raise
         raise ZentureMCPError(
             "mcp_transport_unavailable",
             status_code=503,
