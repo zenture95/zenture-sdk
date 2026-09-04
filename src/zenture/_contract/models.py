@@ -626,6 +626,11 @@ class PublicRunResponse(SDKBaseModel):
     def _status(cls, value: object) -> object:
         return RunStatus(value) if isinstance(value, str) else value
 
+    @field_validator("acceptance_decision", mode="before")
+    @classmethod
+    def _acceptance_decision(cls, value: object) -> object:
+        return PublicDecision(value) if isinstance(value, str) else value
+
     @field_validator("artifact_refs", mode="before")
     @classmethod
     def _artifact_refs(cls, value: object) -> object:

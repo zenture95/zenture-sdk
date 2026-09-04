@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from zenture import AsyncZenture, Zenture
-from zenture._contract import PublicRunEvent, PublicRunHeartbeat
+from zenture._contract import PublicRunEvent, PublicRunHeartbeat, PublicRunResponse
 from zenture._contract.run_references import validate_run_cursor
 from zenture._resources.runs import RunEventStreamState
 from zenture.errors import (
@@ -68,6 +68,14 @@ def _run(*, status: str = "queued", run_id: str = RUN_ID) -> dict[str, object]:
         "queue": {"queue_reason": "queue:admitted", "jobs_ahead": 0},
         "cancellation_requested": False,
     }
+
+
+def test_public_run_response_coerces_wire_decision_to_strict_enum() -> None:
+    response = PublicRunResponse.model_validate(
+        {**_run(status="succeeded"), "acceptance_decision": "ready"}
+    )
+
+    assert response.acceptance_decision.value == "ready"
 
 
 def _sse_event(*, event_id: str, sequence: int, status: str, event_cursor: str) -> bytes:
